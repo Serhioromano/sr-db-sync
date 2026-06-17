@@ -12,6 +12,7 @@ import { SqliteAdapter } from '../adapters/sqlite.js';
 import type { DatabaseAdapter } from '../adapters/adapter.interface.js';
 import type { DsnField } from '../adapters/adapter.interface.js';
 import { snashSnapshot } from '../core/snapper.js';
+import { parseRecordsFilter } from '../core/migrator.js';
 import { DbsError } from '../utils/errors.js';
 
 /**
@@ -100,6 +101,7 @@ function buildConfigFromFlags(
   engine: string,
   prefix: string | undefined,
   file: string | undefined,
+  records: string | undefined,
 ): DbsConfig {
   const resolvedFile = file ?? defaultDbmlPath(dsn, engine);
   return {
@@ -109,7 +111,7 @@ function buildConfigFromFlags(
     file: resolvedFile,
     profilesFile: '.dbs.json',
     dryRun: false,
-    insert: false,
+    records,
   };
 }
 
@@ -131,6 +133,7 @@ async function interactiveSnash(
   initialEngine: string | undefined,
   initialPrefix: string | undefined,
   initialFile: string | undefined,
+  initialRecords: string | undefined,
 ): Promise<void> {
   const prompts = await import('@clack/prompts');
 
@@ -182,9 +185,17 @@ async function interactiveSnash(
         engine = config.engine;
         dsn = config.dsn;
         file = initialFile || config.file;
+        let records = initialRecords ?? config.records;
+
+        // Ask about records if not already set
+        if (records === undefined) {
+          const recChoice = await askSnashRecords(prompts, engine, dsn);
+          if (recChoice === undefined) { console.log('Cancelled.'); process.exit(0); }
+          records = recChoice || undefined;
+        }
 
         // Skip DSN config — go straight to confirm
-        await confirmAndRun(prompts, engine, dsn, file, initialPrefix ?? '', true);
+        await confirmAndRun(prompts, engine, dsn, file, initialPrefix ?? '', records, true);
         return;
       }
       // User chose manual — fall through to DSN config below
@@ -282,14 +293,77 @@ async function interactiveSnash(
   file = (fileChoice as string) || defaultFile;
 
   // ------------------------------------------------------------------
-  // Step 5: Confirm + save-as-profile + execute
+  // Step 5: Records selection
   // ------------------------------------------------------------------
-  await confirmAndRun(prompts, engine, dsn, file, initialPrefix ?? '');
+  let records = initialRecords;
+  if (records === undefined) {
+    const recChoice = await askSnashRecords(prompts, engine, dsn);
+    if (recChoice === undefined) { console.log('Cancelled.'); process.exit(0); }
+    records = recChoice || undefined;
+  }
+
+  // ------------------------------------------------------------------
+  // Step 6: Confirm + save-as-profile + execute
+  // ------------------------------------------------------------------
+  await confirmAndRun(prompts, engine, dsn, file, initialPrefix ?? '', records);
 }
 
 // ============================================================
 // Shared helpers
 // ============================================================
+
+/**
+ * Interactive records selection for snash.
+ * Temporarily connects to the DB to get table names, then shows a multiselect.
+ * Returns: undefined (none), 'all', or 'table1,table2,...'
+ */
+async function askSnashRecords(
+  prompts: any,
+  engine: string,
+  dsn: string,
+): Promise<string | undefined> {
+  let adapter: DatabaseAdapter | null = null;
+  try {
+    adapter = createAdapter(engine);
+    await adapter.connect(dsn);
+    const tableNames = await adapter.getTables();
+    await adapter.disconnect();
+    adapter = null;
+
+    if (tableNames.length === 0) {
+      console.log('  ℹ️  No tables found in database.');
+      return undefined;
+    }
+
+    const options = [
+      { value: '__none__', label: 'None', hint: 'Skip records' },
+      { value: '__all__', label: 'All', hint: `Snapshot records for all ${tableNames.length} tables` },
+      ...tableNames.map((t) => ({ value: t, label: t })),
+    ];
+
+    const selected = await prompts.multiselect({
+      message: 'Select tables for records snapshot  (--records):',
+      options,
+      required: false,
+    });
+
+    if (prompts.isCancel(selected)) return undefined;
+
+    const sel = selected as string[];
+    if (sel.includes('__none__')) return undefined;
+    if (sel.includes('__all__')) return 'all';
+
+    const tables = sel.filter((s) => s !== '__none__' && s !== '__all__');
+    if (tables.length === 0) return undefined;
+    return tables.join(',');
+  } catch {
+    return undefined;
+  } finally {
+    if (adapter) {
+      try { await adapter.disconnect(); } catch { /* ignore */ }
+    }
+  }
+}
 
 /**
  * Find an existing .dbs.json file in the standard locations.
@@ -314,12 +388,14 @@ async function confirmAndRun(
   dsn: string,
   file: string,
   prefix: string,
+  records: string | undefined,
   fromProfile = false,
 ): Promise<void> {
+  const recLabel = records ? ` (--records: ${records})` : '';
   console.log('');
   console.log(`  Engine:  ${engine}`);
   console.log(`  DSN:     ${dsn}`);
-  console.log(`  Output:  ${file}`);
+  console.log(`  Output:  ${file}${recLabel}`);
   console.log('');
 
   const confirmed = await prompts.confirm({
@@ -352,7 +428,7 @@ async function confirmAndRun(
 
       if (!prompts.isCancel(profileName)) {
         const profilesFile = 'migration/.dbs.json';
-        saveProfile(profilesFile, profileName as string, { dsn, engine, file });
+        saveProfile(profilesFile, profileName as string, { dsn, engine, file, ...(records ? { records } : {}) });
         console.log(`  ✓ Profile "${profileName}" saved to ${profilesFile}`);
       }
     }
@@ -366,7 +442,7 @@ async function confirmAndRun(
     file,
     profilesFile: '.dbs.json',
     dryRun: false,
-    insert: false,
+    records,
   });
 }
 
@@ -390,6 +466,8 @@ export async function snashCommand(args: string[]): Promise<void> {
       engine: { type: 'string' },
       prefix: { type: 'string' },
       file: { type: 'string' },
+      'dry-run': { type: 'boolean' },
+      records: { type: 'string' },
       profile: { type: 'string' },
       'profiles-file': { type: 'string' },
     },
@@ -402,6 +480,7 @@ export async function snashCommand(args: string[]): Promise<void> {
   const engine = strVal(values.engine);
   const prefix = strVal(values.prefix);
   const file = strVal(values.file);
+  const records = strVal(values.records);
   const profilesFile = strVal(values['profiles-file']);
 
   // Path 1: Profile mode
@@ -410,6 +489,7 @@ export async function snashCommand(args: string[]): Promise<void> {
     const config = resolveProfile(profileName, discoveredFile);
     if (file) config.file = file;
     if (prefix) config.prefix = prefix;
+    if (records !== undefined) config.records = records;
     await executeSnash(config);
     return;
   }
@@ -417,7 +497,7 @@ export async function snashCommand(args: string[]): Promise<void> {
   // Path 2: Direct flags mode (both --dsn and --engine present)
   if (dsn && engine) {
     const validEngine = validateEngine(engine);
-    const config = buildConfigFromFlags(dsn, validEngine, prefix, file);
+    const config = buildConfigFromFlags(dsn, validEngine, prefix, file, records);
     await executeSnash(config);
     return;
   }
@@ -432,7 +512,7 @@ export async function snashCommand(args: string[]): Promise<void> {
     }
   }
 
-  await interactiveSnash(resolvedEngine, prefix, file);
+  await interactiveSnash(resolvedEngine, prefix, file, records);
 }
 
 // ============================================================
@@ -460,6 +540,7 @@ async function executeSnash(config: DbsConfig): Promise<void> {
       file: config.file,
       prefix: config.prefix,
       engine: config.engine,
+      recordsFilter: parseRecordsFilter(config.records),
     });
   } catch (err) {
     try { await adapter.disconnect(); } catch { /* ignore */ }

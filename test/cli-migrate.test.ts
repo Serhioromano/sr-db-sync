@@ -560,10 +560,10 @@ describe('migrateCommand', () => {
   });
 
   // ==========================================================
-  // --insert flag
+  // --records flag
   // ==========================================================
 
-  it('should pass --insert flag and complete', async () => {
+  it('should pass --records all flag and complete', async () => {
     const dbPath = testPath('test.db');
     const dbmlPath = testPath('schema.dbml');
 
@@ -580,7 +580,7 @@ describe('migrateCommand', () => {
         'prod',
         '--profiles-file',
         testPath('profiles.json'),
-        '--insert',
+        '--records', 'all',
       ])
     );
 
@@ -588,7 +588,7 @@ describe('migrateCommand', () => {
     expect(captured.stdout.join('\n')).toContain('EXIT OK');
   });
 
-  it('should combine --dry-run and --insert', async () => {
+  it('should combine --dry-run and --records all', async () => {
     const dbPath = testPath('test.db');
     const dbmlPath = testPath('schema.dbml');
 
@@ -606,7 +606,7 @@ describe('migrateCommand', () => {
         '--profiles-file',
         testPath('profiles.json'),
         '--dry-run',
-        '--insert',
+        '--records', 'all',
       ])
     );
 

@@ -162,7 +162,7 @@ export function resolveProfile(
     profile: profileName,
     profilesFile,
     dryRun: false,
-    insert: false,
+    records: profile.records, // may be undefined
   };
 }
 
@@ -246,7 +246,7 @@ export function extractDbName(dsn: string, engine: string): string {
 export function saveProfile(
   profilesFile: string,
   profileName: string,
-  profile: { dsn: string; engine: string; prefix?: string; file?: string },
+  profile: { dsn: string; engine: string; prefix?: string; file?: string; records?: string },
 ): void {
   const resolvedPath = resolve(profilesFile);
 
@@ -272,6 +272,7 @@ export function saveProfile(
     engine: profile.engine,
     ...(profile.prefix ? { prefix: profile.prefix } : {}),
     ...(profile.file ? { file: profile.file } : {}),
+    ...(profile.records ? { records: profile.records } : {}),
   };
 
   // Ensure parent directory exists

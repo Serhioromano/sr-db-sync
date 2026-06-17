@@ -10,6 +10,20 @@ import type { MigrationPlan, MigrateOptions } from './types.js';
 import { DbsError } from '../utils/errors.js';
 
 /**
+ * Parse a records filter string into a string array for MigrateOptions.
+ *
+ * - `undefined` / `''` → `undefined` (no records processing)
+ * - `'all'` → `['*']`
+ * - `'users,posts'` → `['users', 'posts']`
+ */
+export function parseRecordsFilter(raw: string | undefined): string[] | undefined {
+  if (!raw || raw.trim() === '') return undefined;
+  const trimmed = raw.trim();
+  if (trimmed === 'all') return ['*'];
+  return trimmed.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+/**
  * Run the full migration pipeline:
  *   1. Read and parse the DBML file → SchemaIR
  *   2. Connect to the database via the adapter
@@ -69,7 +83,7 @@ export async function runMigration(
   // ---- 4. Migrate via adapter ----
   const options: MigrateOptions = {
     dryRun: config.dryRun,
-    insertRecords: config.insert,
+    recordsFilter: parseRecordsFilter(config.records),
   };
 
   try {

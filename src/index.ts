@@ -37,7 +37,10 @@ Profiles:
 
 Migrate flags:
   --dry-run                  Preview SQL commands without executing them
-  --insert                   Also check and insert Records from DBML
+  --records <filter>          Insert Records from DBML: 'all' | 'table1,table2'
+
+Snash flags:
+  --records <filter>          Also snapshot records: 'all' | 'table1,table2'
 
 Other:
   --help                     Show this help message

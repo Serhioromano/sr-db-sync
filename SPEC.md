@@ -207,7 +207,7 @@ dbs migrate --engine mysql
 | `--file` | обе | Путь к DBML-файлу: для snash — куда писать, для migrate — откуда читать | `./migration/<dbname>.dbml` (см. §4.4) |
 | `--dry-run` | migrate | Показать SQL-команды (цветные) без выполнения | `false` |
 | `--profiles-file` | обе | Путь к JSON-файлу профилей | `.dbs.json` (в рабочей директории) |
-| `--insert` | migrate | Если флаг установлен, то миграция не только структуру восстанавливает, но проверяет так же Records и вставляет, если их нет. | `false` |
+| `--records` | обе | Фильтр таблиц для работы с Records: `all` (все таблицы) или `table1,table2,...` (конкретные таблицы). Для snash — выгружает данные из БД в DBML. Для migrate — вставляет данные из DBML в БД. | `undefined` (без обработки) |
 
 
 ### 4.4 Извлечение имени БД из DSN (для значения `--file` по умолчанию)
@@ -326,8 +326,9 @@ ERROR [CONNECT] Failed to connect to database
    b. Хранимые процедуры:        adapter.getProcedures()
    c. Enum-типы:                 adapter.getEnums()
 7. Формируем промежуточное представление (IR)
-8. Генерируем DBML-файл (dbml-writer.ts)
-9. Сохраняем в `--file` (или путь по умолчанию)
+8. Если указан `--records` — извлекаем данные из таблиц через `adapter.getTableRecords(tableName)`
+9. Генерируем DBML-файл (dbml-writer.ts)
+10. Сохраняем в `--file` (или путь по умолчанию)
 ```
 
 ---
@@ -374,9 +375,10 @@ ERROR [CONNECT] Failed to connect to database
    └── FK идентичен → ничего не делаем
 
 6. adapter.migrateToSchema() возвращает MigrationPlan — массив операций с SQL
-7. Если --dry-run → вывести SQL-команды в терминал (цветные), НЕ выполнять
-8. Иначе → вывести SQL-команды и выполнить (адаптер сам управляет транзакциями)
-9. adapter.disconnect()
+7. Если --records → парсим блоки Records из DBML → генерируем INSERT OR IGNORE для каждой записи
+8. Если --dry-run → вывести SQL-команды в терминал (цветные), НЕ выполнять
+9. Иначе → вывести SQL-команды и выполнить (адаптер сам управляет транзакциями)
+10. adapter.disconnect()
 
 Примечание: и в dry-run, и в реальном режиме SQL-команды выводятся в терминал.
 Разница: dry-run НЕ выполняет их, реальный режим — выполняет.
@@ -405,6 +407,7 @@ ERROR [CONNECT] Failed to connect to database
 | `DROP INDEX` | Красный | `\x1b[31m` |
 | `ADD FOREIGN KEY` | Синий | `\x1b[34m` |
 | `DROP FOREIGN KEY` | Красный | `\x1b[31m` |
+| `INSERT RECORDS` | Синий | `\x1b[34m` |
 | Ключевые слова SQL | Жирный | `\x1b[1m` |
 | Комментарии `--` | Серый | `\x1b[90m` |
 | Сброс | — | `\x1b[0m` |
@@ -839,6 +842,38 @@ TableGroup auth_system {
   permissions
 }
 ```
+
+#### Records
+
+Блоки `Records` позволяют встраивать seed-данные (начальные записи) прямо в DBML-файл. При миграции с флагом `--records` эти данные вставляются в таблицы с использованием `INSERT OR IGNORE` (или эквивалентной семантики), чтобы избежать дублирования.
+
+```dbml
+Records users(id, username, role) {
+  0, 'Alice', 'admin'
+  1, 'Bob', 'moderator'
+  2, 'Candice', 'moderator'
+  3, 'David', 'member'
+}
+
+Records follows(following_user_id, followed_user_id, created_at) {
+  1, 0, '2026-01-01'
+  3, 2, '2026-02-28'
+}
+```
+
+**Синтаксис:**
+- `Records <table_name>(<col1>, <col2>, ...) { ... }`
+- Значения в строках разделяются запятыми
+- Строковые значения — в одинарных кавычках
+- Числовые значения — без кавычек
+- `NULL` — без кавычек
+- Каждая строка значений — одна запись
+
+**Поведение при migrate --records:**
+- Парсинг DBML извлекает все блоки Records в `SchemaIR.records[]`
+- Адаптер генерирует `INSERT OR IGNORE INTO <table> (<cols>) VALUES (...)` для каждой строки
+- В dry-run режиме команды INSERT выводятся, но не выполняются
+- В реальном режиме команды выполняются после миграции структуры
 
 #### Note / Comment
 ```dbml

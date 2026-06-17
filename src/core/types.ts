@@ -140,6 +140,20 @@ export interface DbsRawExtension {
   sql: string;
 }
 
+// --- Record data: parsed from DBML Records blocks ---
+
+/** A single row of record data from a DBML Records block. */
+export interface RecordRow {
+  values: (string | number | null)[];
+}
+
+/** Parsed Records block: table name, column names, and row data. */
+export interface RecordData {
+  tableName: string;
+  columns: string[];
+  rows: RecordRow[];
+}
+
 // --- SchemaIR: intermediate representation of a full database schema ---
 
 export interface SchemaIR {
@@ -148,6 +162,7 @@ export interface SchemaIR {
   procedures: ProcedureDef[];
   enums: EnumDef[];
   extensions: DbsExtension[];
+  records: RecordData[];
 }
 
 // --- Migration plan types ---
@@ -163,7 +178,8 @@ export type MigrationOpType =
   | 'drop_index'
   | 'add_fk'
   | 'drop_fk'
-  | 'rebuild';
+  | 'rebuild'
+  | 'insert_records';
 
 export interface MigrationOp {
   type: MigrationOpType;
@@ -180,6 +196,6 @@ export type MigrationPlan = MigrationOp[];
 export interface MigrateOptions {
   /** Do not execute — just compare schemas and return the plan. */
   dryRun?: boolean;
-  /** If true, the adapter should also insert Records from DBML that don't exist. */
-  insertRecords?: boolean;
+  /** If set, insert Records only for these tables. `['*']` means all tables with Records. */
+  recordsFilter?: string[];
 }

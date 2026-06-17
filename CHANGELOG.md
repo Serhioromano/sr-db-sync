@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Changed (Фаза 9.2 — --records как строковый фильтр)
+- `--records` теперь строковый флаг: принимает `all` или `table1,table2,...` вместо булева
+- `--records` работает для ОБОИХ команд: snash (выгрузка данных) и migrate (вставка данных)
+- Фильтр `records` сохраняется в профиле `.dbs.json`
+- Интерактивный режим: multiselect с `None`, `All` и списком таблиц после ввода DSN
+- Для snash: таблицы берутся из подключённой БД через `adapter.getTables()`
+- Для migrate: таблицы с Records блоками определяются парсингом DBML-файла
+- `DatabaseAdapter.getTableRecords(tableName)` — новый метод интерфейса (реализован для SQLite)
+- Snapper: `SnashOptions.recordsFilter` — извлечение данных из БД при снапшоте
+- Migrator: `parseRecordsFilter()` — парсинг строки в массив для `MigrateOptions.recordsFilter`
+- `DbsConfig.records?: string` заменил `insert: boolean`
+- `ProfileConfig.records?: string` — новое поле профиля
+- Все 282 теста проходят
+
+### Added (Фаза 9.1 — --records flag)
+- `--records` флаг для команды `dbs migrate`: при установке парсит блоки Records из DBML и выполняет `INSERT OR IGNORE` для каждой записи
+- Интерактивный режим: вопрос о `--records` после dry-run, как при выборе профиля, так и при ручной настройке
+- Цветной вывод для `INSERT RECORDS` (синий) в dry-run и реальном режиме
+- Парсер DBML: реальный парсинг блоков `Records <table>(<cols>) { <values> }` в `RecordData[]`
+- Генератор DBML: функция `writeRecords()` для вывода блоков Records
+- Типы: `RecordRow`, `RecordData`, поле `records` в `SchemaIR`
+- Адаптер SQLite: метод `planInsertRecords()` генерирует `INSERT OR IGNORE` для каждой строки
+- Все 282 теста проходят
+
 ### Added (Phase 8 — Команда Migrate полная)
 - `src/core/migrator.ts` — бизнес-логика migrate: DBML → parseDbml → adapter.connect → adapter.migrateToSchema()
 - `src/cli/migrate.ts` — полная переработка из заглушки:

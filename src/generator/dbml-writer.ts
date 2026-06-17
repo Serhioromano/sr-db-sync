@@ -13,6 +13,7 @@ import type {
   ProcedureDef,
   EnumDef,
   DbsExtension,
+  RecordData,
 } from '../core/types.js';
 import { formatDbsComment } from '../utils/comments.js';
 
@@ -129,6 +130,12 @@ export function generateDbml(
       body: proc.body,
     };
     lines.push(...formatDbsComment(ext));
+    lines.push('');
+  }
+
+  // 8. Records
+  for (const rec of schema.records) {
+    lines.push(...writeRecords(rec));
     lines.push('');
   }
 
@@ -336,6 +343,26 @@ function writeRef(fk: FKDef, sourceTable: string): string[] {
     lines.push(`Ref: ${refBody}`);
   }
 
+  return lines;
+}
+
+// --- Records writer ---
+
+function writeRecords(rec: RecordData): string[] {
+  const lines: string[] = [];
+  const cols = rec.columns.map(escapeIdentifier).join(', ');
+  lines.push(`Records ${escapeIdentifier(rec.tableName)}(${cols}) {`);
+
+  for (const row of rec.rows) {
+    const values = row.values.map((v) => {
+      if (v === null) return 'NULL';
+      if (typeof v === 'number') return String(v);
+      return `'${escapeString(String(v))}'`;
+    });
+    lines.push(`  ${values.join(', ')}`);
+  }
+
+  lines.push('}');
   return lines;
 }
 

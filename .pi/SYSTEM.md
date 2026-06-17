@@ -26,7 +26,15 @@
 - Загрузка и резолв профилей из `.dbs.json`.
 - Интерактивный режим через `@clack/prompts` (без подкоманды).
 - AI-friendly вывод: `exitOk()`, `exitError()`, `warn()`, `DbsError.format()`.
-- Поддержка `--profile`, `--dsn`, `--engine`, `--prefix`, `--file`, `--dry-run`, `--insert`, `--profiles-file`.
+- Поддержка `--profile`, `--dsn`, `--engine`, `--prefix`, `--file`, `--dry-run`, `--records`, `--profiles-file`.
+- `--records` — строковый флаг: `all` (все таблицы) или `table1,table2,...` (конкретные таблицы). Работает и для snash (выгрузка данных), и для migrate (вставка данных).
+- В профиле `.dbs.json` сохраняется поле `records` (строка).
+- Интерактивный режим: после DSN — multiselect с `None`, `All` и списком таблиц (для snash из БД, для migrate из DBML).
+- Парсер DBML: реальный парсинг `Records <table>(<cols>) { <values> }` в `RecordData[]`.
+- Генератор DBML: вывод блоков Records через `writeRecords()`.
+- Адаптер: `getTableRecords()` — чтение всех строк таблицы.
+- Snapper: при `recordsFilter` извлекает данные из БД и включает в SchemaIR.
+- Типы: `RecordRow`, `RecordData`, `records[]` в `SchemaIR`, `recordsFilter` в `MigrateOptions`, `records?: string` в `DbsConfig`.
 - Корректные exit codes (0–5).
 - DBML лексер, парсер → SchemaIR, парсинг @dbs-комментариев.
 - Полный roundtrip: SchemaIR → DBML → parseDbml → SchemaIR (54 теста).

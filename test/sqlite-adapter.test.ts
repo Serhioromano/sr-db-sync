@@ -665,7 +665,7 @@ function table(name: string, cols: ColumnDef[], idxs?: IndexDef[], fks?: FKDef[]
   return { name, columns: cols, indexes: idxs ?? [], foreignKeys: fks ?? [], triggers: [] };
 }
 function schema(tables: TableDefinition[]): SchemaIR {
-  return { tables, views: [], procedures: [], enums: [], extensions: [] };
+  return { tables, views: [], procedures: [], enums: [], extensions: [], records: [] };
 }
 
 const MIG_TMP_DB = '/tmp/db-sync-test-migrate.sqlite';

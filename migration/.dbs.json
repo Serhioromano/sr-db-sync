@@ -1,24 +1,14 @@
 {
-  "prod": {
-    "dsn": "./my.db",
-    "engine": "sqlite",
-    "prefix": "mypref_",
-    "file": "./migration/prod.dbml"
-  },
-  "staging": {
-    "dsn": "mysql://user:pass@staging-host:3306/mydb",
-    "engine": "mysql",
-    "prefix": "",
-    "file": "./migration/staging.dbml"
-  },
-  "test": {
-    "dsn": "./migration/test.db",
-    "engine": "sqlite",
-    "file": "./migration/test.dbml"
-  },
   "migrate": {
     "dsn": "./migration/new.db",
     "engine": "sqlite",
-    "file": "./migration/test2.dbml"
+    "file": "./migration/_base.dbml",
+    "records": "users,follows,posts"
+  },
+  "snash": {
+    "dsn": "./migration/new.db",
+    "engine": "sqlite",
+    "file": "./migration/new.dbml",
+    "records": "follows,posts,users"
   }
 }

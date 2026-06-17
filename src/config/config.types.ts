@@ -10,6 +10,7 @@ export interface ProfileConfig {
   engine: string; // 'sqlite' | 'mysql' | 'postgres'
   prefix?: string; // Table name prefix (optional)
   file?: string; // DBML file path (optional, auto-derived from DSN if omitted)
+  records?: string; // Records filter: 'all' | 'table1,table2' | undefined (none)
 }
 
 /**
@@ -43,6 +44,6 @@ export interface DbsConfig {
   file: string;
   /** Dry-run mode (migrate command) — preview without executing */
   dryRun: boolean;
-  /** Insert records mode (migrate command) — check and insert Records */
-  insert: boolean;
+  /** Records filter: 'all' | 'table1,table2' | undefined (no records processing) */
+  records?: string;
 }

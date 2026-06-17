@@ -24,7 +24,7 @@ import type {
 
 /** Minimal valid SchemaIR with no content */
 function emptySchema(): SchemaIR {
-  return { tables: [], views: [], procedures: [], enums: [], extensions: [] };
+  return { tables: [], views: [], procedures: [], enums: [], extensions: [], records: [] };
 }
 
 /** Create a basic column */
@@ -467,6 +467,7 @@ describe('generateDbml', () => {
   it('should generate @dbs:raw extensions at top level', () => {
     const schema: SchemaIR = {
       ...emptySchema(),
+      records: [],
       extensions: [
         { type: 'raw', sql: 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"' },
       ],
@@ -489,6 +490,7 @@ describe('generateDbml', () => {
           triggers: [],
         },
       ],
+      records: [],
       extensions: [
         { type: 'engine', tableName: 'users', engine: 'InnoDB' },
         { type: 'charset', tableName: 'users', charset: 'utf8mb4' },
@@ -591,6 +593,7 @@ describe('roundtrip: SchemaIR → DBML → parseDbml', () => {
       views: [],
       procedures: [],
       enums: [],
+      records: [],
       extensions: [],
     };
 
@@ -649,6 +652,7 @@ describe('roundtrip: SchemaIR → DBML → parseDbml', () => {
       views: [],
       procedures: [],
       enums: [],
+      records: [],
       extensions: [],
     };
 
@@ -671,6 +675,7 @@ describe('roundtrip: SchemaIR → DBML → parseDbml', () => {
       enums: [
         { name: 'role', values: ['admin', 'editor', 'viewer'] },
       ],
+      records: [],
       extensions: [],
     };
 
@@ -703,6 +708,7 @@ describe('roundtrip: SchemaIR → DBML → parseDbml', () => {
       views: [],
       procedures: [],
       enums: [],
+      records: [],
       extensions: [],
     };
 
@@ -725,6 +731,7 @@ describe('roundtrip: SchemaIR → DBML → parseDbml', () => {
       ],
       procedures: [],
       enums: [],
+      records: [],
       extensions: [],
     };
 
@@ -744,6 +751,7 @@ describe('roundtrip: SchemaIR → DBML → parseDbml', () => {
         { name: 'cleanup', body: 'CREATE PROCEDURE cleanup() BEGIN DELETE FROM logs; END;' },
       ],
       enums: [],
+      records: [],
       extensions: [],
     };
 
@@ -769,6 +777,7 @@ describe('roundtrip: SchemaIR → DBML → parseDbml', () => {
       views: [],
       procedures: [],
       enums: [],
+      records: [],
       extensions: [
         { type: 'engine', tableName: 'users', engine: 'InnoDB' },
         { type: 'check', tableName: 'users', name: 'age_check', condition: 'age >= 0' },
@@ -812,6 +821,7 @@ describe('roundtrip: SchemaIR → DBML → parseDbml', () => {
       views: [],
       procedures: [],
       enums: [],
+      records: [],
       extensions: [],
     };
 
@@ -847,6 +857,7 @@ describe('roundtrip: SchemaIR → DBML → parseDbml', () => {
       views: [],
       procedures: [],
       enums: [],
+      records: [],
       extensions: [],
     };
 
@@ -920,6 +931,7 @@ describe('roundtrip: SchemaIR → DBML → parseDbml', () => {
       enums: [
         { name: 'user_role', values: ['admin', 'editor', 'viewer'] },
       ],
+      records: [],
       extensions: [],
     };
 
@@ -1190,6 +1202,7 @@ describe('edge cases', () => {
   it('should handle raw extension with multiline SQL', () => {
     const schema: SchemaIR = {
       ...emptySchema(),
+      records: [],
       extensions: [
         { type: 'raw', sql: 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"\nSELECT 1;' },
       ],

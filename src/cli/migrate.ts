@@ -45,6 +45,8 @@ function opColor(type: string): string {
       return ANSI_BLUE;
     case 'modify_column':
       return ANSI_YELLOW;
+    case 'insert_records':
+      return ANSI_BLUE;
     case 'drop_column':
     case 'drop_index':
     case 'drop_fk':
@@ -70,6 +72,7 @@ function opLabel(type: string): string {
     case 'add_fk':         return 'ADD FOREIGN KEY';
     case 'drop_fk':        return 'DROP FOREIGN KEY';
     case 'rebuild':        return '↻ REBUILD';
+    case 'insert_records':  return 'INSERT RECORDS';
     default:               return type;
   }
 }
@@ -156,6 +159,7 @@ function opCategory(type: string): string {
     case 'add_fk':         return 'ADD';
     case 'drop_fk':        return 'DROP';
     case 'rebuild':        return 'REBUILD';
+    case 'insert_records':  return 'INSERT';
     default:               return type.toUpperCase();
   }
 }
@@ -327,12 +331,86 @@ function findExistingProfilesFile(): string | undefined {
 // Interactive migrate flow
 // ============================================================
 
+/**
+ * Interactive records selection via multiselect checkboxes.
+ *
+ * For 'migrate' mode: parses the DBML file to find tables with Records blocks.
+ * For 'snash' mode: adapter must already be connected and table names passed.
+ *
+ * Returns:
+ *   - `undefined` → no records processing
+ *   - `'all'`     → process records for all tables
+ *   - `'t1,t2'`   → process records for specific tables
+ */
+async function askRecordsSelection(
+  prompts: any,
+  mode: 'migrate' | 'snash',
+  fileOrAdapter: string | DatabaseAdapter,
+): Promise<string | undefined> {
+  let tableNames: string[];
+
+  if (mode === 'migrate') {
+    // Parse DBML to find Records blocks
+    const dbmlPath = fileOrAdapter as string;
+    try {
+      const { readFileSync } = await import('node:fs');
+      const source = readFileSync(dbmlPath, 'utf-8');
+      const { parseDbml } = await import('../parser/dbml-parser.js');
+      const ir = parseDbml(source);
+      tableNames = ir.records.map((r) => r.tableName);
+    } catch {
+      tableNames = [];
+    }
+  } else {
+    // Snash: adapter is already connected, get tables from it
+    const adapter = fileOrAdapter as DatabaseAdapter;
+    try {
+      tableNames = await adapter.getTables();
+    } catch {
+      tableNames = [];
+    }
+  }
+
+  if (tableNames.length === 0) {
+    console.log('  ℹ️  No tables with record data available.');
+    return undefined;
+  }
+
+  const options = [
+    { value: '__none__', label: 'None', hint: 'Skip records' },
+    { value: '__all__', label: 'All', hint: `Process records for all ${tableNames.length} tables` },
+    ...tableNames.map((t) => ({ value: t, label: t })),
+  ];
+
+  const selected = await prompts.multiselect({
+    message: `Select tables for ${mode === 'migrate' ? 'record insertion' : 'records snapshot'}  (--records):`,
+    options,
+    required: false,
+  });
+
+  if (prompts.isCancel(selected)) return undefined;
+
+  const sel = selected as string[];
+
+  // If "None" is selected, return undefined
+  if (sel.includes('__none__')) return undefined;
+
+  // If "All" is selected, return 'all'
+  if (sel.includes('__all__')) return 'all';
+
+  // Filter out special values
+  const tables = sel.filter((s) => s !== '__none__' && s !== '__all__');
+  if (tables.length === 0) return undefined;
+
+  return tables.join(',');
+}
+
 async function interactiveMigrate(
   initialEngine: string | undefined,
   initialPrefix: string | undefined,
   initialFile: string | undefined,
   initialDryRun: boolean,
-  initialInsert: boolean,
+  initialRecords: string | undefined,
 ): Promise<void> {
   const prompts = await import('@clack/prompts');
 
@@ -343,6 +421,7 @@ async function interactiveMigrate(
   let engine: string | undefined;
   let file: string | undefined;
   let dryRun = initialDryRun;
+  let records = initialRecords;
 
   const profilePath = findExistingProfilesFile();
 
@@ -392,7 +471,18 @@ async function interactiveMigrate(
           dryRun = dryChoice as boolean;
         }
 
-        await confirmAndRunMigrate(prompts, engine, dsn, file, initialPrefix ?? '', dryRun, initialInsert, true);
+        // Ask about --records (only if not already set via CLI flags or profile)
+        if (records === undefined) {
+          records = config.records; // fall back to profile's records value
+        }
+        if (records === undefined) {
+          // Parse DBML to find Records tables
+          const recChoice = await askRecordsSelection(prompts, 'migrate', file, undefined);
+          if (recChoice === undefined) { console.log('Cancelled.'); process.exit(0); }
+          records = recChoice || undefined;
+        }
+
+        await confirmAndRunMigrate(prompts, engine, dsn, file, initialPrefix ?? '', dryRun, records, true);
         return;
       }
     }
@@ -497,8 +587,15 @@ async function interactiveMigrate(
     dryRun = dryChoice as boolean;
   }
 
-  // Step 6: Confirm + save-as-profile + execute
-  await confirmAndRunMigrate(prompts, engine, dsn, file, initialPrefix ?? '', dryRun, initialInsert);
+  // Step 6: Records?
+  if (records === undefined) {
+    const recChoice = await askRecordsSelection(prompts, 'migrate', file, undefined);
+    if (recChoice === undefined) { console.log('Cancelled.'); process.exit(0); }
+    records = recChoice;
+  }
+
+  // Step 7: Confirm + save-as-profile + execute
+  await confirmAndRunMigrate(prompts, engine, dsn, file, initialPrefix ?? '', dryRun, records);
 }
 
 async function confirmAndRunMigrate(
@@ -508,12 +605,13 @@ async function confirmAndRunMigrate(
   file: string,
   prefix: string,
   dryRun: boolean,
-  insert: boolean,
+  records: string | undefined,
   fromProfile = false,
 ): Promise<void> {
   const mode = dryRun ? '🧪 DRY RUN' : '🚀 MIGRATE';
+  const recLabel = records ? ` (--records: ${records})` : '';
   console.log('');
-  console.log(`  Mode:    ${mode}`);
+  console.log(`  Mode:    ${mode}${recLabel}`);
   console.log(`  Engine:  ${engine}`);
   console.log(`  DSN:     ${dsn}`);
   console.log(`  Input:   ${file}`);
@@ -549,7 +647,7 @@ async function confirmAndRunMigrate(
 
       if (!prompts.isCancel(profileName)) {
         const profilesFile = 'migration/.dbs.json';
-        saveProfile(profilesFile, profileName as string, { dsn, engine, file });
+        saveProfile(profilesFile, profileName as string, { dsn, engine, file, ...(records ? { records } : {}) });
         console.log(`  ✓ Profile "${profileName}" saved to ${profilesFile}`);
       }
     }
@@ -563,7 +661,7 @@ async function confirmAndRunMigrate(
     file,
     profilesFile: '.dbs.json',
     dryRun,
-    insert,
+    records,
   });
 }
 
@@ -581,7 +679,7 @@ async function confirmAndRunMigrate(
  *
  * Extra flags:
  * - --dry-run   → preview SQL without executing
- * - --insert    → also check and insert Records from DBML
+ * - --records <filter>   Insert Records from DBML: 'all' | 'table1,table2'
  * - --file      → path to input DBML file (default: ./migration/<dbname>.dbml)
  */
 export async function migrateCommand(args: string[]): Promise<void> {
@@ -593,7 +691,7 @@ export async function migrateCommand(args: string[]): Promise<void> {
       prefix: { type: 'string' },
       file: { type: 'string' },
       'dry-run': { type: 'boolean' },
-      insert: { type: 'boolean' },
+      records: { type: 'string' },
       profile: { type: 'string' },
       'profiles-file': { type: 'string' },
     },
@@ -607,7 +705,7 @@ export async function migrateCommand(args: string[]): Promise<void> {
   const prefix = strVal(values.prefix);
   const file = strVal(values.file);
   const dryRun = boolVal(values['dry-run']);
-  const insert = boolVal(values.insert);
+  const records = strVal(values.records);
   const profilesFile = strVal(values['profiles-file']);
 
   // Path 1: Profile mode
@@ -617,7 +715,7 @@ export async function migrateCommand(args: string[]): Promise<void> {
     if (file) config.file = file;
     if (prefix) config.prefix = prefix;
     config.dryRun = dryRun;
-    config.insert = insert;
+    if (records !== undefined) config.records = records;
     await executeMigrate(config);
     return;
   }
@@ -642,7 +740,7 @@ export async function migrateCommand(args: string[]): Promise<void> {
       file: resolvedFile,
       profilesFile: profilesFile ?? '.dbs.json',
       dryRun,
-      insert,
+      records,
     });
     return;
   }
@@ -657,7 +755,7 @@ export async function migrateCommand(args: string[]): Promise<void> {
     }
   }
 
-  await interactiveMigrate(resolvedEngine, prefix, file, dryRun, insert);
+  await interactiveMigrate(resolvedEngine, prefix, file, dryRun, records);
 }
 
 // ============================================================

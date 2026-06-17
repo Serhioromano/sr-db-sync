@@ -20,6 +20,7 @@ import type {
   MigrationPlan,
   MigrationOp,
   MigrateOptions,
+  RecordData,
 } from '../core/types.js';
 import type {
   DatabaseAdapter,
@@ -475,6 +476,35 @@ export class SqliteAdapter implements DatabaseAdapter {
   }
 
   // ==========================================================
+  // Records reading — reads all rows from a table
+  // ==========================================================
+
+  async getTableRecords(tableName: string): Promise<RecordData> {
+    const db = this.ensureDb();
+
+    // Get column names from PRAGMA table_info
+    const cols = db
+      .query<{ name: string }>(`PRAGMA table_info('${tableName}')`)
+      .all();
+    const columns = cols.map((c) => c.name);
+
+    // Read all rows
+    const rows = db
+      .query(`SELECT * FROM "${tableName}"`)
+      .all() as Record<string, unknown>[];
+
+    const recordRows = rows.map((row) => ({
+      values: columns.map((col) => {
+        const val = row[col];
+        if (val === null || val === undefined) return null;
+        return val as string | number;
+      }),
+    }));
+
+    return { tableName, columns, rows: recordRows };
+  }
+
+  // ==========================================================
   // Schema migration
   // ==========================================================
   // The adapter reads the current schema, compares it with the
@@ -519,6 +549,17 @@ export class SqliteAdapter implements DatabaseAdapter {
     }
 
     // Tables in current but NOT in target → intentionally skipped (SPEC §6.3)
+
+    // 2.5. Insert Records if recordsFilter is set
+    const filter = options?.recordsFilter;
+    if (filter && target.records && target.records.length > 0) {
+      const filtered = filter.includes('*')
+        ? target.records
+        : target.records.filter((r) => filter.includes(r.tableName));
+      if (filtered.length > 0) {
+        plan.push(...this.planInsertRecords(filtered));
+      }
+    }
 
     // 3. Execute SQL (unless dry-run)
     if (!dryRun) {
@@ -859,6 +900,45 @@ export class SqliteAdapter implements DatabaseAdapter {
       table: tableName,
       sql: `ALTER TABLE ${this.q(tempName)} RENAME TO ${this.q(tableName)}`,
     });
+
+    return ops;
+  }
+
+  // ==========================================================
+  // Records insertion
+  // ==========================================================
+
+  /**
+   * Generate INSERT OR IGNORE statements for Records parsed from DBML.
+   * Uses INSERT OR IGNORE to avoid duplicate-key errors.
+   */
+  private planInsertRecords(records: RecordData[]): MigrationOp[] {
+    const ops: MigrationOp[] = [];
+
+    for (const rec of records) {
+      if (rec.rows.length === 0) continue;
+
+      const tableName = rec.tableName;
+      const colNames = rec.columns.map((c) => this.q(c)).join(', ');
+      const placeholders = rec.columns.map(() => '?').join(', ');
+
+      for (const row of rec.rows) {
+        // Build SQL with inline values for display and execution
+        const values = row.values.map((v) => {
+          if (v === null) return 'NULL';
+          if (typeof v === 'number') return String(v);
+          return `'${String(v).replace(/'/g, "''")}'`;
+        });
+
+        const sql = `INSERT OR IGNORE INTO ${this.q(tableName)} (${colNames}) VALUES (${values.join(', ')})`;
+
+        ops.push({
+          type: 'insert_records' as const,
+          table: tableName,
+          sql,
+        });
+      }
+    }
 
     return ops;
   }

@@ -16,6 +16,8 @@ import type {
   DbsExtension,
   DbsViewExtension,
   DbsProcedureExtension,
+  RecordData,
+  RecordRow,
 } from '../core/types.js';
 import { DbsError } from '../utils/errors.js';
 
@@ -159,10 +161,14 @@ export function parseDbml(source: string): SchemaIR {
     procedures: [],
     enums: [],
     extensions: [],
+    records: [],
   };
 
   // Working array for unattached Ref results (FK + table name)
   const refResults: RefResult[] = [];
+
+  // Working array for parsed Records blocks
+  const records: RecordData[] = [];
 
   while (!state.isAtEnd()) {
     // Collect DBS comments before each top-level declaration
@@ -189,7 +195,7 @@ export function parseDbml(source: string): SchemaIR {
         parseTableGroup(state); // skip for now
         break;
       case TokenType.RECORDS:
-        parseRecords(state); // skip for now
+        records.push(parseRecords(state));
         break;
       case TokenType.LINE_COMMENT:
         // DBS comments were already collected; skip remaining
@@ -204,6 +210,9 @@ export function parseDbml(source: string): SchemaIR {
 
   // Attach Ref relationships to their tables, and collect extensions
   refResults.forEach((rr) => attachForeignKey(schema, rr));
+
+  // Attach Records
+  schema.records = records;
 
   // Collect any remaining trailing DBS comments
   state.collectDbsComments();
@@ -827,32 +836,90 @@ function parseTableGroup(state: ParserState): void {
 }
 
 // ============================================================
-// Records parser (skip for now — Phase 3 doesn't handle data)
+// Records parser — parses Records <table>(<columns>) { <rows> }
 // ============================================================
 
-function parseRecords(state: ParserState): void {
+function parseRecords(state: ParserState): RecordData {
   state.advance(); // RECORDS keyword
-  // Skip table name
-  if (state.current().type === TokenType.IDENTIFIER) state.advance();
-  // Skip column list in parens
+
+  // Table name
+  const tableTok = state.expect(TokenType.IDENTIFIER, 'table name in Records');
+  const tableName = tableTok.value;
+
+  // Column list: (col1, col2, col3)
+  const columns: string[] = [];
   if (state.current().type === TokenType.LPAREN) {
-    state.advance();
+    state.advance(); // LPAREN
     while (!state.isAtEnd() && state.current().type !== TokenType.RPAREN) {
-      state.advance();
+      if (state.current().type === TokenType.COMMA) {
+        state.advance();
+        continue;
+      }
+      if (state.current().type === TokenType.IDENTIFIER) {
+        columns.push(state.advance().value);
+      } else {
+        state.advance();
+      }
     }
     state.match(TokenType.RPAREN);
   }
-  // Skip body
-  state.match(TokenType.LBRACE);
-  let depth = 1;
-  while (!state.isAtEnd() && depth > 0) {
+
+  // Body: row values separated by commas, rows separated by newlines
+  state.expect(TokenType.LBRACE, `Records ${tableName} {`);
+
+  const rows: RecordRow[] = [];
+  let currentRow: (string | number | null)[] = [];
+
+  while (!state.isAtEnd() && state.current().type !== TokenType.RBRACE) {
     const tok = state.current();
-    if (tok.type === TokenType.LBRACE) depth++;
-    else if (tok.type === TokenType.RBRACE) depth--;
-    if (depth > 0) state.advance();
+
+    // Skip comma separators
+    if (tok.type === TokenType.COMMA) {
+      state.advance();
+      continue;
+    }
+
+    if (tok.type === TokenType.NUMBER) {
+      const numStr = state.advance().value;
+      currentRow.push(Number(numStr));
+    } else if (tok.type === TokenType.STRING) {
+      currentRow.push(state.advance().value);
+    } else if (tok.type === TokenType.IDENTIFIER) {
+      const val = state.advance().value;
+      // Check if it's 'NULL' (case-insensitive)
+      if (val.toUpperCase() === 'NULL') {
+        currentRow.push(null);
+      } else {
+        currentRow.push(val);
+      }
+    } else if (tok.type === TokenType.LINE_COMMENT) {
+      // Skip comments inside Records body
+      state.advance();
+    } else {
+      // Unknown token — skip
+      state.advance();
+    }
+
+    // When we've collected enough values for a row, finish it
+    if (columns.length > 0 && currentRow.length >= columns.length) {
+      rows.push({ values: currentRow.slice(0, columns.length) });
+      currentRow = [];
+    }
   }
+
+  // Flush any remaining values as a final row
+  if (currentRow.length > 0 && columns.length > 0) {
+    // Pad with nulls for missing columns
+    while (currentRow.length < columns.length) {
+      currentRow.push(null);
+    }
+    rows.push({ values: currentRow.slice(0, columns.length) });
+  }
+
   state.match(TokenType.RBRACE);
   state.skipComments();
+
+  return { tableName, columns, rows };
 }
 
 // ============================================================

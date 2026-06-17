@@ -13,6 +13,7 @@ import type {
   SchemaIR,
   MigrationPlan,
   MigrateOptions,
+  RecordData,
 } from '../core/types.js';
 
 // --- DSN field for interactive input ---
@@ -60,6 +61,10 @@ export interface DatabaseAdapter {
   // generates engine-specific SQL, executes it (unless dryRun), and
   // returns a MigrationPlan describing what was done/would be done.
   migrateToSchema(target: SchemaIR, options?: MigrateOptions): Promise<MigrationPlan>;
+
+  // --- Records reading (Snash + Migrate) ---
+  // Reads all rows from the specified table.
+  getTableRecords(tableName: string): Promise<RecordData>;
 }
 
 // --- Adapter constructor interface ---
