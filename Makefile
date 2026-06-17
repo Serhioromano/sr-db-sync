@@ -60,7 +60,7 @@ publish: build compile-all
 	@npm version $(v) --no-git-tag-version > /dev/null 2>&1; \
 		NEW_VER=$$(node -p "require('./package.json').version"); \
 		echo "🏷️  package.json → $$NEW_VER"; \
-		git add package.json package-lock.json CHANGELOG.md; \
+		git add package.json bun.lock CHANGELOG.md; \
 		if ! git diff --cached --quiet --exit-code; then \
 			git commit -m "Release v$$NEW_VER"; \
 		fi; \

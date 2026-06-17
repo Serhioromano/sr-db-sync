@@ -22,3 +22,5 @@ strictModeWhiteList:
   - ^npm pack\b
   - ^node\b
   - ^make compile\b
+  - ^npm view\b
+  - ^gh\b

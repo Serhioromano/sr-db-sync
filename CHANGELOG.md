@@ -1,12 +1,6 @@
 # Changelog
 
-## [Unreleased]
-
 ## [v1.0.6]
-
-## [v1.0.4]
-
-## [v1.0.3]
 
 ### Added (Фаза 9 — Адаптер MySQL Snash + Migrate)
 - `src/adapters/mysql.ts` — полный MySQL-адаптер (1150 строк), реализующий интерфейс `DatabaseAdapter`
