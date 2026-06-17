@@ -28,3 +28,7 @@ strictModeWhiteList:
   - ^readlink\b
   - ^make build\b
   - ^index\.js\b
+  - ^awk\b
+  - ^notes_file=\$\(mktemp\)\b
+  - ^wc\b
+  - ^tail\b

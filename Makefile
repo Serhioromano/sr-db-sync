@@ -82,7 +82,7 @@ publish: build
 	@# 11. Create GitHub Release from CHANGELOG
 	@tag=$$(git describe --tags --abbrev=0); \
 		notes_file=$$(mktemp); \
-		awk -v ver="## [$$tag]" 'found && /^## \[/{exit} {print} /^## \[/ && $$0 == ver{found=1}' CHANGELOG.md > "$$notes_file"; \
+		awk -v ver="## [$$tag]" '$$0 == ver {found=1} found {print} found && $$0 != ver && /^## \[/ {exit}' CHANGELOG.md > "$$notes_file"; \
 		if [ ! -s "$$notes_file" ]; then \
 			echo "⚠️  No release notes found in CHANGELOG.md for $$tag, using auto-generated notes"; \
 			gh release create "$$tag" --title "$$tag" --generate-notes; \

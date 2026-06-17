@@ -961,35 +961,3 @@ Ref: posts.user_id > users.id [delete: cascade]
 // END;
 ```
 
-docker run -d \
-   --name mysql-dbsync \
-   -e MYSQL_ROOT_PASSWORD=root \
-   -e MYSQL_DATABASE=test \
-   -p 3306:3306 \
-   mysql:8.4 \
-   --default-authentication-plugin=mysql_native_password 2>&1
-
- ┌──────────────┬───────────┐
- │ Параметр     │ Значение  │
- ├──────────────┼───────────┤
- │ Хост         │ 127.0.0.1 │
- ├──────────────┼───────────┤
- │ Порт         │ 3306      │
- ├──────────────┼───────────┤
- │ Пользователь │ root      │
- ├──────────────┼───────────┤
- │ Пароль       │ root      │
- ├──────────────┼───────────┤
- │ База данных  │ test      │
- └──────────────┴───────────┘
-
-```bash
-   # Остановить
-   docker stop mysql-dbsync
-
-   # Запустить снова
-   docker start mysql-dbsync
-
-   # Удалить
-   docker rm -f mysql-dbsync
- ```

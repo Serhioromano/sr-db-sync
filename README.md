@@ -287,6 +287,12 @@ When you run `dbs migrate --profile prod --dry-run`, you'll see a color-coded pr
 
 ---
 
+## AI.md — Documentation for AI Agents
+
+See [AI.md](AI.md) for a comprehensive guide written specifically for AI agents (LLMs, coding assistants, CI bots). It covers all commands, flags, error codes, ANSI color scheme, output parsing strategies, and typical workflows.
+
+---
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

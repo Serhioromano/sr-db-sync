@@ -1,73 +1,83 @@
-# Системный промпт — sr-db-sync
+# SYSTEM — sr-db-sync
 
-Проект: **sr-db-sync** — CLI-утилита для двунаправленной конвертации между базой данных и DBML (Database Markup Language).
+CLI-утилита для двунаправленной конвертации между базой данных и DBML.
+Бинарь: `dbs`. Две команды: `dbs snash` (БД → DBML) и `dbs migrate` (DBML → БД).
 
-## Текущее состояние
+---
 
-- **Фаза 0** (Инициализация) завершена.
-- **Фаза 1** (Типы и интерфейсы) завершена.
-- **Фаза 2** (CLI-скелет) завершена.
-- **Фаза 3** (Парсер DBML) завершена.
-- **Фаза 4** (Адаптер SQLite, Snash) завершена.
-- **Фаза 5** (Генератор DBML) завершена.
-- **Фаза 6** (Команда Snash) завершена.
-- **Фаза 7** (Адаптер SQLite Migrate) завершена.
-- **Фаза 8** (Команда Migrate полная) завершена.
-- **Фаза 9** (Адаптер MySQL) завершена.
-- `dbs snash --dsn ./test.db --engine sqlite --file schema.dbml` создаёт валидный DBML-файл с полной схемой (306 тестов).
-- `dbs migrate --profile prod --dry-run` — читает DBML, парсит, вызывает adapter.migrateToSchema(), выводит цветные SQL-команды. `dbs migrate --profile prod` — выполняет миграцию с цветными чекмарками.
-- Архитектурное решение: никакого промежуточного «differ» слоя — адаптер делает всё.
-- Унификация `--output`/`--input` → `--file` (единый флаг для обеих подкоманд).
-- Авто-вывод пути DBML-файла из DSN (`./migration/<dbname>.dbml`) через `extractDbName()` и `defaultDbmlPath()`.
-- `extractDbName` добавлен как метод интерфейса `DatabaseAdapter` (каждый адаптер знает, как парсить свой DSN).
-- `extractDbName` в `profiles.ts` делегирует адаптеру; fallback для движков без адаптера (MySQL/PostgreSQL).
-- `.dbs.json` в `migration/.dbs.json` (приоритетная локация).
-- `discoverProfilesFile()` — поиск `.dbs.json` в `migration/`, затем в корне.
-- Полноценный парсинг флагов через `node:util.parseArgs`.
-- Загрузка и резолв профилей из `.dbs.json`.
-- Интерактивный режим `dbs` (без подкоманды) делегирует в интерактивный поток snash/migrate.
-- AI-friendly вывод: `exitOk()`, `exitError()`, `warn()`, `DbsError.format()`.
-- Поддержка `--profile`, `--dsn`, `--engine`, `--prefix`, `--file`, `--dry-run`, `--records`, `--profiles-file`.
-- `--records` — строковый флаг: `all` (все таблицы) или `table1,table2,...` (конкретные таблицы). Работает и для snash (выгрузка данных), и для migrate (вставка данных).
-- В профиле `.dbs.json` сохраняется поле `records` (строка).
-- Интерактивный режим: после DSN — multiselect с `None`, `All` и списком таблиц (для snash из БД, для migrate из DBML).
-- Парсер DBML: реальный парсинг `Records <table>(<cols>) { <values> }` в `RecordData[]`.
-- Генератор DBML: вывод блоков Records через `writeRecords()`.
-- Адаптер: `getTableRecords()` — чтение всех строк таблицы.
-- Snapper: при `recordsFilter` извлекает данные из БД и включает в SchemaIR.
-- Типы: `RecordRow`, `RecordData`, `records[]` в `SchemaIR`, `recordsFilter` в `MigrateOptions`, `records?: string` в `DbsConfig`.
-- Корректные exit codes (0–5).
-- MySQL адаптер: DSN URL `mysql://user:password@host:port/database`, connection pool (`mysql2/promise`), `information_schema`-запросы (TABLES, COLUMNS, STATISTICS, KEY_COLUMN_USAGE, REFERENTIAL_CONSTRAINTS, TRIGGERS, VIEWS, ROUTINES), `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`, нативный `ALTER TABLE MODIFY COLUMN` и `ADD/DROP FOREIGN KEY` (без table rebuild), backtick-цитирование идентификаторов, нормализация типов (INT(11)↔INT, INTEGER↔INT).
-- `IMPLEMENTED_ENGINES`: `['sqlite', 'mysql']`.
-- Интерактивный режим: MySQL доступен для выбора с полями host/port/user/password/database.
-- 24 модульных теста MySQL (dry-run миграция, SQL-генерация, нормализация) + 5 интеграционных (пропускаются без MySQL).
-- DBML лексер, парсер → SchemaIR, парсинг @dbs-комментариев.
-- Полный roundtrip: SchemaIR → DBML → parseDbml → SchemaIR (54 теста).
-- Полная команда migrate: чтение DBML, парсинг, вызов adapter.migrateToSchema(), цветной ANSI-вывод SQL (зелёный CREATE, синий ADD, жёлтый MODIFY, красный DROP), dry-run и реальное выполнение. Интерактивный режим: `dbs migrate` без аргументов запускает выбор профиля / настройку DSN. (19 тестов CLI + 6 тестов в cli-main).
+## Архитектура (ключевое)
 
-## Следующая фаза
+**Главное правило:** никакого промежуточного «differ» слоя. Адаптер делает всё сам:
+читает живую схему БД, сравнивает с целевым SchemaIR, генерирует engine-specific SQL,
+выполняет его (или выводит в dry-run).
 
-Фаза 9: Адаптер MySQL (Snash + Migrate) — полный roundtrip MySQL: snash → DBML → migrate на чистую БД MySQL → snash → идентичный DBML.
+**Поток snash:**  `CLI → adapter.connect → adapter.getTables/getColumns/... → SchemaIR → DBML writer → файл`
+**Поток migrate:** `CLI → DBML parser → SchemaIR → adapter.connect → adapter.migrateToSchema(target) → MigrationPlan → SQL`
 
-## Ключевые файлы
-|------|-----------|
+## Движки
+
+| Engine | Адаптер | Статус |
+|--------|---------|--------|
+| `sqlite` | `src/adapters/sqlite.ts` | ✅ |
+| `mysql` | `src/adapters/mysql.ts` | ✅ |
+| `postgres` | нет | 🔮 planned |
+
+`IMPLEMENTED_ENGINES = ['sqlite', 'mysql']` (в `cli/snash.ts` и `cli/migrate.ts`).
+
+## Флаги (единые для обеих команд)
+
+`--dsn`, `--engine`, `--prefix`, `--file`, `--profile`, `--profiles-file`, `--dry-run` (только migrate), `--records` (all | table1,table2,...)
+
+- `--file` унифицирован: snash пишет в него, migrate читает из него.
+- По умолчанию `--file` = `./migration/<dbname>.dbml` (dbname извлекается адаптером из DSN через `extractDbName()`).
+- Профили: `migration/.dbs.json` (приоритет), затем `.dbs.json` (корень).
+
+## Ключевые файлы (куда идти)
+
+| Файл | Когда менять |
+|------|-------------|
+| `src/index.ts` | CLI-диспетчер, usage, интерактивный режим |
+| `src/cli/snash.ts` | Логика команды snash (флаги, профили, вызов snapper) |
+| `src/cli/migrate.ts` | Логика команды migrate (флаги, профили, ANSI-вывод SQL) |
+| `src/core/snapper.ts` | Бизнес-логика: БД → SchemaIR → DBML |
+| `src/core/migrator.ts` | Бизнес-логика: DBML → SchemaIR → adapter.migrateToSchema() |
+| `src/core/types.ts` | SchemaIR, ColumnDef, IndexDef, FKDef, MigrationPlan, RecordData |
+| `src/adapters/adapter.interface.ts` | Интерфейс DatabaseAdapter (connect, getTables, getColumns, migrateToSchema, ...) |
+| `src/adapters/sqlite.ts` | Адаптер SQLite (~1066 строк) |
+| `src/adapters/mysql.ts` | Адаптер MySQL (~1203 строк) |
+| `src/config/profiles.ts` | Загрузка `.dbs.json`, resolveProfile, extractDbName, defaultDbmlPath |
+| `src/config/config.types.ts` | DbsConfig, ProfileConfig, DbsProfiles |
+| `src/parser/dbml-lexer.ts` | Токенизатор DBML |
+| `src/parser/dbml-parser.ts` | Парсер DBML → SchemaIR |
+| `src/generator/dbml-writer.ts` | SchemaIR → DBML-текст |
+| `src/utils/errors.ts` | DbsError (code, message, cause, engine, dsn, file, line, hint...), EXIT_CODES |
+| `src/utils/output.ts` | exitOk(), exitError(), warn() — AI-friendly контракт |
+| `test/` | Все тесты (OneTest/Bun) |
 | `SPEC.md` | Полная спецификация |
-| `PLAN.md` | Пофазовый план реализации |
-| `README.md` | Документация и статус проекта |
-| `CHANGELOG.md` | История изменений |
-| `src/index.ts` | Точка входа CLI, диспетчер подкоманд, интерактивный режим |
-| `src/cli/snash.ts` | Подкоманда snash: разрешение конфигурации, вызов snapper, обработка ошибок |
-| `src/cli/migrate.ts` | Подкоманда migrate: CLI-интеграция, цветной вывод SQL (ANSI), dry-run/execute |
-| `src/core/migrator.ts` | Бизнес-логика migrate: DBML → parseDbml → adapter.connect → adapter.migrateToSchema() |
-| `src/core/snapper.ts` | Бизнес-логика: БД → SchemaIR → DBML файл |
-| `src/core/types.ts` | Все типы схемы БД, SchemaIR, MigrationPlan, MigrateOptions |
-| `src/adapters/adapter.interface.ts` | Интерфейс DatabaseAdapter (Snash + migrateToSchema) |
-| `src/adapters/sqlite.ts` | Адаптер SQLite: чтение схемы + migrateToSchema (сравнение + SQL + выполнение) |
-| `src/config/config.types.ts` | Типы конфигурации профилей |
-| `src/config/profiles.ts` | Загрузка и резолв `.dbs.json`, `extractDbName()`, `defaultDbmlPath()` |
-| `src/generator/dbml-writer.ts` | Генератор DBML: SchemaIR → валидный DBML (таблицы, колонки, индексы, Ref, Enum, @dbs) |
-| `src/parser/dbml-lexer.ts` | Токенизатор DBML (ключевые слова, символы, строки, числа, комментарии) |
-| `src/parser/dbml-parser.ts` | Парсер DBML → SchemaIR (таблицы, колонки, индексы, Ref, Enum, DBS-расширения) |
-| `src/utils/comments.ts` | Кодирование/декодирование `// @dbs:` комментариев |
-| `src/utils/errors.ts` | Класс DbsError |
-| `src/utils/output.ts` | Функции вывода: exitOk, exitError, warn |
+| `PLAN.md` | Пофазовый план |
+| `AI.md` | Полный AI-справочник (команды, флаги, ошибки, workflow) |
+
+## Конвенции кода
+
+- **Весь вывод** идёт через `exitOk()` / `exitError()` / `warn()` из `src/utils/output.ts`.
+- **Ошибки** — всегда `DbsError` с кодом. Коды: `CONFIG`, `CONNECT`, `ENGINE`, `SCHEMA_READ`, `DBML_PARSE`, `DBML_WRITE`, `MIGRATE`, `TRANSACTION`.
+- **Exit codes:** 0=OK, 1=CONFIG/ENGINE, 2=CONNECT, 3=SCHEMA_READ/DBML_PARSE, 4=MIGRATE/TRANSACTION, 5=DBML_WRITE.
+- **Миграция безопасна:** таблицы, которых нет в DBML, **никогда не удаляются**.
+- **ANSI-цвета** в migrate-выводе: зелёный=CREATE, синий=ADD, жёлтый=MODIFY, красный=DROP.
+
+## Тесты
+
+```bash
+bun test                  # все тесты
+bun test --watch          # автоперезапуск
+bun test --coverage       # покрытие
+```
+
+Тестовый фреймворк: **OneTest** (встроен в Bun). Файлы: `test/*.test.ts`.
+Эталонная схема: `test/test.dbml`. Временные SQLite-базы в `test/*.sqlite` (в `.gitignore`).
+
+## После изменений в TypeScript
+
+1. `bun test` — прогнать тесты.
+2. `npx fallow` — проверить dead code/duplication/health.
+3. Обновить `CHANGELOG.md`, `README.md` (если затронута публичная поверхность), этот файл (если новая архитектурная деталь).
