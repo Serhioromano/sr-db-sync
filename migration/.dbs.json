@@ -1,26 +1,30 @@
 {
-  "migrate": {
-    "dsn": "./migration/new.db",
-    "engine": "sqlite",
-    "file": "./migration/mysql.dbml",
-    "records": "users,follows,posts"
-  },
-  "snash": {
-    "dsn": "./migration/new.db",
-    "engine": "sqlite",
-    "file": "./migration/new.dbml",
-    "records": "follows,posts,users"
-  },
   "mysql_migrate": {
     "dsn": "mysql://root:root@127.0.0.1:3306/test",
     "engine": "mysql",
+    "prefix": "my_",
     "file": "./migration/_base.dbml",
     "records": "users,follows,posts"
   },
   "mysql_snash": {
     "dsn": "mysql://root:root@127.0.0.1:3306/test",
     "engine": "mysql",
+    "prefix": "my_",
     "file": "./migration/mysql.dbml",
     "records": "users,follows,posts"
+  },
+  "sqlite_migrate": {
+    "dsn": "./migration/sqlite.db",
+    "engine": "sqlite",
+    "prefix": "my_",
+    "file": "./migration/_base.dbml",
+    "records": "users,follows,posts"
+  },
+  "sqlite_snash": {
+    "dsn": "./migration/sqlite.db",
+    "engine": "sqlite",
+    "prefix": "my_",
+    "file": "./migration/sqlite.dbml",
+    "records": "my_comments,my_follows,my_posts,my_users"
   }
 }

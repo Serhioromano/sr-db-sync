@@ -201,7 +201,7 @@ async function interactiveSnash(
         }
 
         // Skip DSN config — go straight to confirm
-        await confirmAndRun(prompts, engine, dsn, file, initialPrefix ?? '', records, true);
+        await confirmAndRun(prompts, engine, dsn, file, initialPrefix || config.prefix, records, true);
         return;
       }
       // User chose manual — fall through to DSN config below
@@ -282,6 +282,25 @@ async function interactiveSnash(
   dsn = buildAdapterDsn(engine, fieldValues);
 
   // ------------------------------------------------------------------
+  // Step 3.5: Table prefix (optional)
+  // ------------------------------------------------------------------
+  let prefix = initialPrefix ?? '';
+  if (!initialPrefix) {
+    const prefixChoice = await prompts.text({
+      message: 'Table prefix (optional, press Enter to skip):',
+      placeholder: 'e.g. wp_',
+      defaultValue: '',
+    });
+
+    if (prompts.isCancel(prefixChoice)) {
+      console.log('Cancelled.');
+      process.exit(0);
+    }
+
+    prefix = (prefixChoice as string) || '';
+  }
+
+  // ------------------------------------------------------------------
   // Step 4: Output file
   // ------------------------------------------------------------------
   const defaultFile = defaultDbmlPath(dsn, engine);
@@ -311,7 +330,7 @@ async function interactiveSnash(
   // ------------------------------------------------------------------
   // Step 6: Confirm + save-as-profile + execute
   // ------------------------------------------------------------------
-  await confirmAndRun(prompts, engine, dsn, file, initialPrefix ?? '', records);
+  await confirmAndRun(prompts, engine, dsn, file, prefix, records);
 }
 
 // ============================================================
@@ -401,6 +420,7 @@ async function confirmAndRun(
   console.log(`  Engine:  ${engine}`);
   console.log(`  DSN:     ${dsn}`);
   console.log(`  Output:  ${file}`);
+  if (prefix) console.log(`  Prefix:  ${prefix}`);
   if (records) console.log(`  Records: ${records}`);
   console.log('');
 
@@ -434,7 +454,7 @@ async function confirmAndRun(
 
       if (!prompts.isCancel(profileName)) {
         const profilesFile = 'migration/.dbs.json';
-        saveProfile(profilesFile, profileName as string, { dsn, engine, file, ...(records ? { records } : {}) });
+        saveProfile(profilesFile, profileName as string, { dsn, engine, prefix: prefix || undefined, file, ...(records ? { records } : {}) });
         console.log(`  ✓ Profile "${profileName}" saved to ${profilesFile}`);
       }
     }

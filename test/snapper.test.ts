@@ -246,25 +246,14 @@ describe('snashSnapshot', () => {
 
   // ---- Prefix stripping ----
 
-  it('should strip prefix from table names when specified', async () => {
-    // Create a database with prefixed table
-    const prefixedDb = new Database(':memory:');
-    prefixedDb.run(`
-      CREATE TABLE pref_users (id INTEGER PRIMARY KEY, name TEXT);
-      CREATE TABLE pref_posts (id INTEGER PRIMARY KEY, title TEXT);
-    `);
-    const prefixedAdapter = new SqliteAdapter();
-    // Override internal state to use the in-memory DB
-    // Use connect/disconnect pattern
-    const oldConnect = prefixedAdapter.connect.bind(prefixedAdapter);
-    const oldDisconnect = prefixedAdapter.disconnect.bind(prefixedAdapter);
-
-    // We need to create a file-based DB with prefix for this test
+  it('should strip prefix from table names and filter by prefix', async () => {
+    // Create a database with prefixed AND non-prefixed tables
     const prefixedPath = '/tmp/sr-db-sync-test-snapper-prefixed.sqlite';
     if (existsSync(prefixedPath)) unlinkSync(prefixedPath);
     const fileDb = new Database(prefixedPath, { create: true });
     fileDb.run('CREATE TABLE pref_users (id INTEGER PRIMARY KEY, name TEXT)');
     fileDb.run('CREATE TABLE pref_posts (id INTEGER PRIMARY KEY, title TEXT)');
+    fileDb.run('CREATE TABLE logs (id INTEGER PRIMARY KEY, message TEXT)');
     fileDb.close();
 
     const prefAdapter = new SqliteAdapter();
@@ -290,9 +279,46 @@ describe('snashSnapshot', () => {
     // Should NOT contain the prefixed names as table names
     expect(content).not.toContain('Table pref_users');
     expect(content).not.toContain('Table pref_posts');
+    // Should NOT contain non-prefixed tables
+    expect(content).not.toContain('Table logs');
 
     // Cleanup
     unlinkSync(prefixedPath);
+  });
+
+  it('should strip prefix from FK refTable when using prefix', async () => {
+    const fkDbPath = '/tmp/sr-db-sync-test-snapper-prefix-fk.sqlite';
+    if (existsSync(fkDbPath)) unlinkSync(fkDbPath);
+    const fileDb = new Database(fkDbPath, { create: true });
+    fileDb.run('CREATE TABLE pref_users (id INTEGER PRIMARY KEY, name TEXT)');
+    fileDb.run('CREATE TABLE pref_posts (id INTEGER PRIMARY KEY, title TEXT, user_id INTEGER REFERENCES pref_users(id))');
+    fileDb.close();
+
+    const fkAdapter = new SqliteAdapter();
+    await fkAdapter.connect(fkDbPath);
+
+    const outputPath = join(OUTPUT_DIR, 'snapshot-prefix-fk.dbml');
+    if (existsSync(outputPath)) unlinkSync(outputPath);
+
+    const writtenPath = await snashSnapshot(fkAdapter, {
+      file: outputPath,
+      prefix: 'pref_',
+      engine: 'sqlite',
+    });
+
+    await fkAdapter.disconnect();
+
+    const content = readFileSync(outputPath, 'utf-8');
+
+    // FK refTable should have prefix stripped: references 'users', not 'pref_users'
+    expect(content).toContain('Table users');
+    expect(content).toContain('Table posts');
+    expect(content).toContain('Ref: posts.user_id > users.id');
+    // Should NOT contain prefixed refTable
+    expect(content).not.toContain('Ref: posts.user_id > pref_users.id');
+
+    // Cleanup
+    unlinkSync(fkDbPath);
   });
 
   // ---- Error: SCHEMA_READ on bad database ----

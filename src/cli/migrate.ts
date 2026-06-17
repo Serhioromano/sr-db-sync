@@ -488,7 +488,7 @@ async function interactiveMigrate(
           records = recChoice || undefined;
         }
 
-        await confirmAndRunMigrate(prompts, engine, dsn, file, initialPrefix ?? '', dryRun, records, true);
+        await confirmAndRunMigrate(prompts, engine, dsn, file, initialPrefix || config.prefix, dryRun, records, true);
         return;
       }
     }
@@ -563,6 +563,23 @@ async function interactiveMigrate(
 
   dsn = buildAdapterDsn(engine, fieldValues);
 
+  // Step 3.5: Table prefix (optional)
+  let prefix = initialPrefix ?? '';
+  if (!initialPrefix) {
+    const prefixChoice = await prompts.text({
+      message: 'Table prefix (optional, press Enter to skip):',
+      placeholder: 'e.g. wp_',
+      defaultValue: '',
+    });
+
+    if (prompts.isCancel(prefixChoice)) {
+      console.log('Cancelled.');
+      process.exit(0);
+    }
+
+    prefix = (prefixChoice as string) || '';
+  }
+
   // Step 4: Input DBML file
   const defaultFile = defaultDbmlPath(dsn, engine);
   const fileChoice = await prompts.text({
@@ -601,7 +618,7 @@ async function interactiveMigrate(
   }
 
   // Step 7: Confirm + save-as-profile + execute
-  await confirmAndRunMigrate(prompts, engine, dsn, file, initialPrefix ?? '', dryRun, records);
+  await confirmAndRunMigrate(prompts, engine, dsn, file, prefix, dryRun, records);
 }
 
 async function confirmAndRunMigrate(
@@ -620,6 +637,7 @@ async function confirmAndRunMigrate(
   console.log(`  Engine:  ${engine}`);
   console.log(`  DSN:     ${dsn}`);
   console.log(`  Input:   ${file}`);
+  if (prefix) console.log(`  Prefix:  ${prefix}`);
   if (records) console.log(`  Records: ${records}`);
   console.log('');
 
@@ -653,7 +671,7 @@ async function confirmAndRunMigrate(
 
       if (!prompts.isCancel(profileName)) {
         const profilesFile = 'migration/.dbs.json';
-        saveProfile(profilesFile, profileName as string, { dsn, engine, file, ...(records ? { records } : {}) });
+        saveProfile(profilesFile, profileName as string, { dsn, engine, prefix: prefix || undefined, file, ...(records ? { records } : {}) });
         console.log(`  ✓ Profile "${profileName}" saved to ${profilesFile}`);
       }
     }

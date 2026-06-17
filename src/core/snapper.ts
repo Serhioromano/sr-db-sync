@@ -51,9 +51,9 @@ export async function snashSnapshot(
   // The caller is responsible for connect/disconnect.
 
   // 2. Extract all tables
-  let tableNames: string[];
+  let allTableNames: string[];
   try {
-    tableNames = await adapter.getTables();
+    allTableNames = await adapter.getTables();
   } catch (err) {
     throw new DbsError({
       code: 'SCHEMA_READ',
@@ -64,14 +64,17 @@ export async function snashSnapshot(
     });
   }
 
+  // 2.5. Filter by prefix if configured
+  const tableNames = prefix
+    ? allTableNames.filter((t) => t.startsWith(prefix))
+    : allTableNames;
+
   // 3. For each table: extract columns, indexes, foreign keys, triggers
   const tables: TableDefinition[] = [];
 
   for (const rawName of tableNames) {
-    // Apply prefix stripping if configured
-    const name = prefix && rawName.startsWith(prefix)
-      ? rawName.slice(prefix.length)
-      : rawName;
+    // Strip prefix from table name if configured
+    const name = prefix ? rawName.slice(prefix.length) : rawName;
 
     try {
       const [columns, indexes, foreignKeys, triggers] = await Promise.all([
@@ -81,7 +84,17 @@ export async function snashSnapshot(
         adapter.getTriggers(rawName),
       ]);
 
-      tables.push({ name, columns, indexes, foreignKeys, triggers });
+      // Strip prefix from FK refTable if configured
+      const strippedFKs = prefix
+        ? foreignKeys.map((fk) => ({
+            ...fk,
+            refTable: fk.refTable.startsWith(prefix)
+              ? fk.refTable.slice(prefix.length)
+              : fk.refTable,
+          }))
+        : foreignKeys;
+
+      tables.push({ name, columns, indexes, foreignKeys: strippedFKs, triggers });
     } catch (err) {
       throw new DbsError({
         code: 'SCHEMA_READ',
@@ -117,17 +130,27 @@ export async function snashSnapshot(
   let records: import('./types.js').RecordData[] = [];
 
   if (recordsFilter && recordsFilter.length > 0) {
-    // Determine which tables to read records from
-    const filterAll = recordsFilter.includes('*');
-    const tableNamesForRecords = filterAll
-      ? tableNames // all tables from DB
-      : tableNames.filter((t) => recordsFilter.includes(t));
+    // Determine which tables to read records from.
+    // The recordsFilter matches against STRIPPED names (the DBML view),
+    // so we build a lookup from stripped→raw name.
+    const nameMap = new Map<string, string>();
+    for (const rawName of tableNames) {
+      const stripped = prefix ? rawName.slice(prefix.length) : rawName;
+      nameMap.set(stripped, rawName);
+    }
 
-    for (const rawName of tableNamesForRecords) {
+    const filterAll = recordsFilter.includes('*');
+    const targetStripped = filterAll
+      ? [...nameMap.keys()]
+      : recordsFilter.filter((f) => nameMap.has(f));
+
+    for (const strippedName of targetStripped) {
+      const rawName = nameMap.get(strippedName)!;
       try {
         const rec = await adapter.getTableRecords(rawName);
         if (rec.rows.length > 0) {
-          records.push(rec);
+          // Strip prefix from record's tableName
+          records.push({ ...rec, tableName: strippedName });
         }
       } catch (err) {
         // Non-fatal: skip tables that can't be read

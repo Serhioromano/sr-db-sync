@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { parseDbml } from '../parser/dbml-parser.js';
 import type { DatabaseAdapter } from '../adapters/adapter.interface.js';
 import type { DbsConfig } from '../config/config.types.js';
-import type { MigrationPlan, MigrateOptions } from './types.js';
+import type { MigrationPlan, MigrateOptions, SchemaIR } from './types.js';
 import { DbsError } from '../utils/errors.js';
 
 /**
@@ -65,6 +65,11 @@ export async function runMigration(
     });
   }
 
+  // ---- 2.5. Apply prefix to all table names in targetIR ----
+  if (config.prefix) {
+    targetIR = applyPrefix(targetIR, config.prefix);
+  }
+
   // ---- 3. Connect ----
   try {
     await adapter.connect(config.dsn, { createIfNotExists: true });
@@ -81,9 +86,15 @@ export async function runMigration(
   }
 
   // ---- 4. Migrate via adapter ----
+  let recordsFilter = parseRecordsFilter(config.records);
+  if (config.prefix && recordsFilter) {
+    recordsFilter = recordsFilter.map((f) =>
+      f === '*' ? '*' : config.prefix + f
+    );
+  }
   const options: MigrateOptions = {
     dryRun: config.dryRun,
-    recordsFilter: parseRecordsFilter(config.records),
+    recordsFilter,
   };
 
   try {
@@ -98,4 +109,42 @@ export async function runMigration(
       dsn: config.dsn,
     });
   }
+}
+
+// ============================================================
+// Prefix application for migration
+// ============================================================
+
+/**
+ * Prepend a prefix to all table names and table references in a SchemaIR.
+ *
+ * This is used during migration when --prefix is set: the DBML file
+ * contains unprefixed table names, and we need to match them against
+ * a database that uses the given prefix.
+ */
+function applyPrefix(ir: SchemaIR, prefix: string): SchemaIR {
+  const prepend = (name: string) => prefix + name;
+
+  return {
+    tables: ir.tables.map((t) => ({
+      ...t,
+      name: prepend(t.name),
+      foreignKeys: t.foreignKeys.map((fk) => ({
+        ...fk,
+        refTable: prepend(fk.refTable),
+      })),
+    })),
+    views: ir.views.map((v) => ({ ...v, name: prepend(v.name) })),
+    procedures: ir.procedures.map((p) => ({ ...p, name: prepend(p.name) })),
+    enums: ir.enums.map((e) => ({ ...e, name: prepend(e.name) })),
+    extensions: ir.extensions.map((ext) => {
+      if (ext.type === 'trigger' || ext.type === 'check' ||
+          ext.type === 'engine' || ext.type === 'charset' ||
+          ext.type === 'collation') {
+        return { ...ext, tableName: prepend(ext.tableName) };
+      }
+      return ext;
+    }),
+    records: ir.records.map((r) => ({ ...r, tableName: prepend(r.tableName) })),
+  };
 }
