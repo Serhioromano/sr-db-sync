@@ -27,3 +27,4 @@ strictModeWhiteList:
   - ^head\b
   - ^readlink\b
   - ^make build\b
+  - ^index\.js\b

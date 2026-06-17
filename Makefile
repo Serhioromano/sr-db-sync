@@ -70,8 +70,7 @@ publish: build
 	@git push origin main --tags
 	@echo "🚀 Pushed to GitHub"
 	@# 11. Publish to npm
-	@npm publish
-	@echo "📦 Published sr-db-sync to npm"
+	@npm publish && echo "📦 Published sr-db-sync to npm"
 	@# 12. Create GitHub Release from CHANGELOG
 	@tag=$$(git describe --tags --abbrev=0); \
 		notes_file=$$(mktemp); \

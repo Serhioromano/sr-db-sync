@@ -15,7 +15,9 @@ import { snashCommand } from './cli/snash.js';
 import { migrateCommand } from './cli/migrate.js';
 import { exitOk } from './utils/output.js';
 
-const VERSION = '1.0.0';
+import pkg from '../package.json' with { type: 'json' };
+
+const VERSION = pkg.version;
 
 const USAGE = `sr-db-sync v${VERSION} — Database ↔ DBML bidirectional converter
 
