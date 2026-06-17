@@ -11,12 +11,13 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun --minify",
+    "build": "bun build src/index.ts --outdir dist --target bun --minify && bun run build:types",
     "prepublishOnly": "bun run build",
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
     "typecheck": "bun run build --noEmit",
-    "snash": "bun ./src/index.ts  snash --dsn migration/test.db --engine sqlite --file migration/test.dbml"
+    "snash": "bun ./src/index.ts  snash --dsn migration/test.db --engine sqlite --file migration/test.dbml",
+    "build:types": "tsc -p tsconfig.build.json"
   },
   "repository": {
     "type": "git",
