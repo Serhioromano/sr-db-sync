@@ -1,0 +1,22 @@
+
+Table users {
+  id INTEGER [pk, increment]
+  name TEXT [not null]
+  email TEXT [not null]
+  age INTEGER
+}
+
+Table posts {
+  id INTEGER [pk, increment]
+  title TEXT [not null]
+  user_id INTEGER
+}
+
+Table comments {
+  id INTEGER [pk, increment]
+  body TEXT [not null]
+  post_id INTEGER
+}
+
+Ref: posts.user_id > users.id
+Ref: comments.post_id > posts.id

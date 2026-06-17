@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Added (Phase 8 — Команда Migrate полная)
+- `src/core/migrator.ts` — бизнес-логика migrate: DBML → parseDbml → adapter.connect → adapter.migrateToSchema()
+- `src/cli/migrate.ts` — полная переработка из заглушки:
+  - CLI-интеграция: профили (.dbs.json) или флаги (--dsn + --engine)
+  - **Интерактивный режим**: `dbs migrate` без аргументов → выбор профиля / ручная настройка DSN / dry-run / подтверждение / сохранение профиля
+  - Цветной ANSI-вывод SQL в dry-run (зелёный CREATE, синий ADD, жёлтый MODIFY, красный DROP, серый комментарии, жирный ключевые слова)
+  - Цветные чекмарки в реальном режиме выполнения
+  - Поддержка `--dry-run`, `--insert`, `--file`
+  - Обработка ошибок: DBML_PARSE, CONNECT, MIGRATE, ENGINE
+  - Корректные exit codes (0–5)
+- `src/index.ts` — migrateCommand теперь async (await)
+- `test/cli-migrate.test.ts` — 19 тестов:
+  - dry-run: цветной SQL-вывод, DROP COLUMN, CREATE INDEX, ANSI-коды
+  - real execution: ADD COLUMN + CREATE TABLE, DROP COLUMN + CREATE INDEX
+  - no-op (идентичная схема, dry-run и реальный режим)
+  - DSN + ENGINE режим, обработка ошибок (CONFIG, ENGINE, DBML_PARSE)
+  - --insert флаг, --profile приоритет, интерактивный режим
+- `test/cli-main.test.ts` — migrate dispatch тест обновлён под async
+- 280 тестов, 0 failures
+
 ### Added (Phase 7 — SQLite Migrate)
 - Архитектурное упрощение: удалён промежуточный слой `differ.ts` — сравнение схем, генерация SQL и выполнение теперь живут в адаптере
 - `src/adapters/adapter.interface.ts` — 8 индивидуальных методов записи + 3 метода транзакций заменены на один `migrateToSchema(target: SchemaIR, options?: MigrateOptions): Promise<MigrationPlan>`

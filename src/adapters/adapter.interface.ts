@@ -28,11 +28,18 @@ export interface DsnField {
   // Returns an error string, or undefined if OK
 }
 
+// --- Connection options ---
+
+export interface ConnectOptions {
+  /** If true, create the database if it doesn't exist (SQLite-only). */
+  createIfNotExists?: boolean;
+}
+
 // --- Database adapter interface ---
 
 export interface DatabaseAdapter {
   // Connection management
-  connect(dsn: string): Promise<void>;
+  connect(dsn: string, options?: ConnectOptions): Promise<void>;
   disconnect(): Promise<void>;
 
   // --- DSN parsing (no connection required) ---

@@ -128,8 +128,12 @@ describe('CLI main entry (sync paths)', () => {
   });
 
   it('should dispatch migrate subcommand with --dry-run', async () => {
+    // Create a DBML file for the existing test DB
+    const dbmlPath = testPath('migrate-input.dbml');
+    writeFileSync(dbmlPath, `Table users {\n  id INTEGER [pk]\n  name TEXT\n}\n`);
+
     writeJson('profiles.json', {
-      prod: { dsn: './my.db', engine: 'sqlite' },
+      prod: { dsn: TEST_DB, engine: 'sqlite', file: dbmlPath },
     });
 
     process.argv = [
@@ -143,11 +147,11 @@ describe('CLI main entry (sync paths)', () => {
       '--dry-run',
     ];
 
-    const captured = await runAndCaptureExit(() => {
+    const captured = await runAndCaptureExit(async () => {
       const args = process.argv.slice(2);
       if (args[0] === 'migrate') {
         const { migrateCommand } = require('../src/cli/migrate.js');
-        migrateCommand(args.slice(1));
+        await migrateCommand(args.slice(1));
       }
     });
 

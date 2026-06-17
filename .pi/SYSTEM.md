@@ -12,8 +12,9 @@
 - **Фаза 5** (Генератор DBML) завершена.
 - **Фаза 6** (Команда Snash) завершена.
 - **Фаза 7** (Адаптер SQLite Migrate) завершена.
-- `dbs snash --dsn ./test.db --engine sqlite --file schema.dbml` создаёт валидный DBML-файл с полной схемой (272 теста).
-- `adapter.migrateToSchema(targetIR, { dryRun: true })` — адаптер сам читает текущую схему, сравнивает с целевой SchemaIR, генерирует SQLite-специфичный SQL и возвращает MigrationPlan (13 тестов).
+- **Фаза 8** (Команда Migrate полная) завершена.
+- `dbs snash --dsn ./test.db --engine sqlite --file schema.dbml` создаёт валидный DBML-файл с полной схемой (280 тестов).
+- `dbs migrate --profile prod --dry-run` — читает DBML, парсит, вызывает adapter.migrateToSchema(), выводит цветные SQL-команды. `dbs migrate --profile prod` — выполняет миграцию с цветными чекмарками.
 - Архитектурное решение: никакого промежуточного «differ» слоя — адаптер делает всё.
 - Унификация `--output`/`--input` → `--file` (единый флаг для обеих подкоманд).
 - Авто-вывод пути DBML-файла из DSN (`./migration/<dbname>.dbml`) через `extractDbName()` и `defaultDbmlPath()`.
@@ -29,11 +30,11 @@
 - Корректные exit codes (0–5).
 - DBML лексер, парсер → SchemaIR, парсинг @dbs-комментариев.
 - Полный roundtrip: SchemaIR → DBML → parseDbml → SchemaIR (54 теста).
-- Diff-движок: сравнение двух SchemaIR → MigrationPlan (40 тестов).
+- Полная команда migrate: чтение DBML, парсинг, вызов adapter.migrateToSchema(), цветной ANSI-вывод SQL (зелёный CREATE, синий ADD, жёлтый MODIFY, красный DROP), dry-run и реальное выполнение. Интерактивный режим: `dbs migrate` без аргументов запускает выбор профиля / настройку DSN. (19 тестов CLI + 6 тестов в cli-main).
 
 ## Следующая фаза
 
-Фаза 8: Команда Migrate (полная) — CLI-интеграция: чтение DBML, вызов adapter.migrateToSchema(), цветной вывод SQL, dry-run.
+Фаза 9: Адаптер MySQL (Snash + Migrate) — полный roundtrip MySQL: snash → DBML → migrate на чистую БД MySQL → snash → идентичный DBML.
 
 ## Ключевые файлы
 |------|-----------|
@@ -43,7 +44,8 @@
 | `CHANGELOG.md` | История изменений |
 | `src/index.ts` | Точка входа CLI, диспетчер подкоманд, интерактивный режим |
 | `src/cli/snash.ts` | Подкоманда snash: разрешение конфигурации, вызов snapper, обработка ошибок |
-| `src/cli/migrate.ts` | Подкоманда migrate (заглушка) |
+| `src/cli/migrate.ts` | Подкоманда migrate: CLI-интеграция, цветной вывод SQL (ANSI), dry-run/execute |
+| `src/core/migrator.ts` | Бизнес-логика migrate: DBML → parseDbml → adapter.connect → adapter.migrateToSchema() |
 | `src/core/snapper.ts` | Бизнес-логика: БД → SchemaIR → DBML файл |
 | `src/core/types.ts` | Все типы схемы БД, SchemaIR, MigrationPlan, MigrateOptions |
 | `src/adapters/adapter.interface.ts` | Интерфейс DatabaseAdapter (Snash + migrateToSchema) |

@@ -17,7 +17,7 @@ CLI-утилита для двунаправленной конвертации 
 - [x] Фаза 5: Генератор DBML
 - [x] Фаза 6: Команда Snash
 - [x] Фаза 7: SQLite Migrate (migrateToSchema)
-- [ ] Фаза 8: Команда Migrate
+- [x] Фаза 8: Команда Migrate (полная)
 - [ ] Фаза 9: Адаптер MySQL
 - [ ] Фаза 10: Полировка
 
@@ -66,3 +66,98 @@ db-sync/
 ├── tsconfig.json
 └── .dbs.json                 # Файл профилей (в корне проекта)
 ```
+
+
+
+WHen I dry run on existing DB it wants to recreate all foreign kekys. 
+
+```
+bun ./src/index.ts migrate
+
+│
+◇  Choose a profile or configure manually:
+│  migrate
+│
+◇  Preview SQL only (dry-run)?
+│  Yes
+
+  Mode:    🧪 DRY RUN
+  Engine:  sqlite
+  DSN:     ./migration/new.db
+  Input:   ./migration/test2.dbml
+
+│
+◇  Apply migration with these settings?
+│  Yes
+
+🧪 DRY RUN — SQL-команды НЕ будут выполнены:
+
+-- Note: SQLite requires table rebuild for FK changes
+ALTER TABLE "follows" DROP FOREIGN KEY "fk_follows_users_0"
+
+-- Note: SQLite requires table rebuild for FK changes
+ALTER TABLE "follows" DROP FOREIGN KEY "fk_follows_users_1"
+
+-- Note: SQLite requires table rebuild for FK changes
+ALTER TABLE "follows" ADD FOREIGN KEY ("followed_user_id") REFERENCES "users" ("id")
+
+ALTER TABLE "users" DROP COLUMN "password"
+
+-- Note: SQLite requires table rebuild for FK changes
+ALTER TABLE "posts" DROP FOREIGN KEY "fk_posts_users_0"
+
+-- Note: SQLite requires table rebuild for FK changes
+ALTER TABLE "posts" ADD CONSTRAINT "user_posts" FOREIGN KEY ("user_id") REFERENCES "users" ("id")
+
+-- Note: SQLite requires table rebuild for FK changes
+ALTER TABLE "comments" DROP FOREIGN KEY "fk_comments_posts_0"
+
+-- Note: SQLite requires table rebuild for FK changes
+ALTER TABLE "comments" DROP FOREIGN KEY "fk_comments_users_1"
+
+-- Note: SQLite requires table rebuild for FK changes
+ALTER TABLE "comments" ADD CONSTRAINT "user_comments" FOREIGN KEY ("user_id") REFERENCES "users" ("id")
+
+-- Note: SQLite requires table rebuild for FK changes
+ALTER TABLE "comments" ADD CONSTRAINT "post_comments" FOREIGN KEY ("user_id") REFERENCES "posts" ("id")
+```
+
+If key already exists because I can see in dry run of creation that it is there.
+
+```
+CREATE TABLE "follows" (
+  "following_user_id" INTEGER,
+  "followed_user_id" INTEGER,
+  "created_at" TIMESTAMP,
+  FOREIGN KEY ("following_user_id") REFERENCES "users" ("id"),
+  FOREIGN KEY ("followed_user_id") REFERENCES "users" ("id")
+)
+
+CREATE TABLE "users" (
+  "id" INTEGER PRIMARY KEY,
+  "username" VARCHAR,
+  "password" VARCHAR,
+  "role" VARCHAR,
+  "created_at" TIMESTAMP
+)
+
+CREATE TABLE "posts" (
+  "id" INTEGER PRIMARY KEY,
+  "title" VARCHAR,
+  "body" TEXT,
+  "user_id" INTEGER NOT NULL,
+  "status" VARCHAR,
+  "created_at" TIMESTAMP,
+  FOREIGN KEY ("user_id") REFERENCES "users" ("id")
+)
+
+CREATE TABLE "comments" (
+  "id" INTEGER PRIMARY KEY,
+  "user_id" INTEGER NOT NULL,
+  "post_id" INTEGER NOT NULL,
+  FOREIGN KEY ("user_id") REFERENCES "users" ("id"),
+  FOREIGN KEY ("user_id") REFERENCES "posts" ("id")
+)
+```
+
+We have alter only tables that foreign key was changed. And only for sqlite the process of chage foreign key is to create temporary table, insert into it all the data from old table, delete old table, rename temporary table. Becuae sqlite does not support ALTER TABLE "follows" ADD FOREIGN KEY

@@ -174,7 +174,7 @@ async function main(): Promise<void> {
       break;
 
     case 'migrate':
-      migrateCommand(remainingArgs);
+      await migrateCommand(remainingArgs);
       break;
 
     default:

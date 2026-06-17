@@ -15,5 +15,10 @@
     "dsn": "./migration/test.db",
     "engine": "sqlite",
     "file": "./migration/test.dbml"
+  },
+  "migrate": {
+    "dsn": "./migration/new.db",
+    "engine": "sqlite",
+    "file": "./migration/test2.dbml"
   }
 }

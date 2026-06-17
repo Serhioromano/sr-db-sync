@@ -1,5 +1,6 @@
 {
     "recommendations": [
-        "matt-meyers.vscode-dbml"
+        "matt-meyers.vscode-dbml",
+        "bowlerr.sqlite-intelliview-vscode"
     ]
 }

@@ -162,7 +162,8 @@ export type MigrationOpType =
   | 'create_index'
   | 'drop_index'
   | 'add_fk'
-  | 'drop_fk';
+  | 'drop_fk'
+  | 'rebuild';
 
 export interface MigrationOp {
   type: MigrationOpType;

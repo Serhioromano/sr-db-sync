@@ -855,7 +855,9 @@ describe('SqliteAdapter — migrateToSchema', () => {
     const adapter = new SqliteAdapter();
     await adapter.connect(MIG_TMP_DB);
 
-    // Target has posts without idx_posts_user
+    // Target has posts without idx_posts_user (removed).
+    // Since posts has FK changes too, this triggers a table rebuild.
+    // Indexes not in target are simply not recreated after rebuild.
     const target = schema([
       table('posts', [
         col('id', 'INTEGER', { primaryKey: true, nullable: false }),
@@ -868,17 +870,23 @@ describe('SqliteAdapter — migrateToSchema', () => {
     await adapter.disconnect();
     unlinkSync(MIG_TMP_DB);
 
-    const drops = plan.filter((op) => op.type === 'drop_index');
-    expect(drops.length).toBe(1);
-    expect(drops[0].index).toBe('idx_posts_user');
+    // Each rebuild produces 4 ops (all type 'rebuild')
+    const allTableOps = plan.filter((op) => op.table === 'posts');
+    expect(allTableOps.length).toBe(4);
+    expect(allTableOps[0]!.type).toBe('rebuild');
+    expect(allTableOps[0]!.sql).toContain('CREATE TABLE');
+    expect(allTableOps[1]!.sql).toContain('INSERT INTO');
+    expect(allTableOps[2]!.sql).toContain('DROP TABLE');
+    expect(allTableOps[3]!.sql).toContain('RENAME TO');
   });
 
-  it('generates add_fk for new foreign keys', async () => {
+  it('generates table rebuild for new foreign keys', async () => {
     createMigDb(MIG_TMP_DB);
     const adapter = new SqliteAdapter();
     await adapter.connect(MIG_TMP_DB);
 
     // Add FK to users table (doesn't exist in current)
+    // SQLite does not support ALTER TABLE ADD FOREIGN KEY → table rebuild
     const target = schema([
       table('users', [
         col('id', 'INTEGER', { primaryKey: true, autoIncrement: true, nullable: false }),
@@ -893,17 +901,19 @@ describe('SqliteAdapter — migrateToSchema', () => {
     await adapter.disconnect();
     unlinkSync(MIG_TMP_DB);
 
-    const adds = plan.filter((op) => op.type === 'add_fk');
-    expect(adds.length).toBe(1);
-    expect(adds[0].fk).toBe('fk_users_self');
+    // Should produce a table rebuild (4 ops for users table)
+    const allTableOps = plan.filter((op) => op.table === 'users');
+    expect(allTableOps.length).toBe(4);
+    expect(allTableOps[0]!.sql).toContain('FOREIGN KEY');
   });
 
-  it('generates drop_fk for removed foreign keys', async () => {
+  it('generates table rebuild for removed foreign keys', async () => {
     createMigDb(MIG_TMP_DB);
     const adapter = new SqliteAdapter();
     await adapter.connect(MIG_TMP_DB);
 
     // Target has posts without FK
+    // SQLite does not support ALTER TABLE DROP FOREIGN KEY → table rebuild
     const target = schema([
       table('posts', [
         col('id', 'INTEGER', { primaryKey: true, nullable: false }),
@@ -916,8 +926,11 @@ describe('SqliteAdapter — migrateToSchema', () => {
     await adapter.disconnect();
     unlinkSync(MIG_TMP_DB);
 
-    const drops = plan.filter((op) => op.type === 'drop_fk');
-    expect(drops.length).toBe(1);
+    // Should produce a table rebuild (4 ops for posts table)
+    const allTableOps = plan.filter((op) => op.table === 'posts');
+    expect(allTableOps.length).toBe(4);
+    // The CREATE TABLE op should NOT contain FOREIGN KEY (FK was removed)
+    expect(allTableOps[0]!.sql).not.toContain('FOREIGN KEY');
   });
 
   it('orders operations: columns before indexes within same table', async () => {

@@ -24,6 +24,7 @@ import type {
 import type {
   DatabaseAdapter,
   DsnField,
+  ConnectOptions,
 } from './adapter.interface.js';
 import { DbsError } from '../utils/errors.js';
 
@@ -204,10 +205,11 @@ export class SqliteAdapter implements DatabaseAdapter {
   // Connection management
   // ==========================================================
 
-  async connect(dsn: string): Promise<void> {
+  async connect(dsn: string, options?: ConnectOptions): Promise<void> {
+    const createIfNotExists = options?.createIfNotExists ?? false;
     try {
       this.dsn = dsn;
-      this.db = new Database(dsn, { create: false, readwrite: true });
+      this.db = new Database(dsn, { create: createIfNotExists, readwrite: true });
       // Enable foreign key enforcement
       this.db.exec('PRAGMA foreign_keys = ON');
     } catch (err) {
@@ -217,7 +219,9 @@ export class SqliteAdapter implements DatabaseAdapter {
         cause: err instanceof Error ? err.message : String(err),
         engine: 'sqlite',
         dsn,
-        hint: 'Check that the file exists and is a valid SQLite database.',
+        hint: createIfNotExists
+          ? 'Check that the path is writable and valid.'
+          : 'Check that the file exists and is a valid SQLite database.',
       });
     }
   }
@@ -488,20 +492,29 @@ export class SqliteAdapter implements DatabaseAdapter {
       currentTableMap.set(t.name.toLowerCase(), t);
     }
 
-    // 2. Compare and plan operations in correct order:
-    //    CREATE TABLE → DROP/ADD/MODIFY COLUMN → indexes → FKs
+    // 2. Compare and plan operations in correct order.
+    //    For tables with FK changes: table rebuild (SQLite cannot ALTER FK).
+    //    For tables without FK changes: individual ALTER + CREATE/DROP INDEX.
+    //    For new tables: CREATE TABLE with inline FKs + CREATE INDEX.
 
     for (const targetTable of target.tables) {
       const currentTable = currentTableMap.get(targetTable.name.toLowerCase());
 
       if (!currentTable) {
-        // New table — CREATE TABLE (columns only; indexes + FKs come after)
+        // New table — CREATE TABLE with inline FK constraints
         plan.push(...this.planCreateTable(targetTable));
+        plan.push(...this.planIndexChanges(targetTable.name, [], targetTable.indexes));
+        // FKs are already included inline in CREATE TABLE — skip planFKChanges
+      } else if (this.hasFKChanges(currentTable.foreignKeys, targetTable.foreignKeys)) {
+        // FK changes detected → table rebuild (handles columns + FKs atomically)
+        plan.push(...this.planTableRebuild(targetTable, currentTable));
+        // After rebuild, recreate all indexes from target
+        plan.push(...this.planIndexChanges(targetTable.name, [], targetTable.indexes));
       } else {
-        // Table exists — diff columns, indexes, FKs
+        // No FK changes — individual column/index operations
         plan.push(...this.planColumnChanges(targetTable.name, currentTable.columns, targetTable.columns));
         plan.push(...this.planIndexChanges(targetTable.name, currentTable.indexes, targetTable.indexes));
-        plan.push(...this.planFKChanges(targetTable.name, currentTable.foreignKeys, targetTable.foreignKeys));
+        // No FK diff — skip planFKChanges
       }
     }
 
@@ -513,7 +526,21 @@ export class SqliteAdapter implements DatabaseAdapter {
       db.exec('PRAGMA foreign_keys = OFF');
       try {
         for (const op of plan) {
-          db.run(op.sql);
+          // Skip comment-only operations (FK changes on SQLite — not supported via ALTER)
+          if (!op.sql.trim() || op.sql.trimStart().startsWith('--')) continue;
+          try {
+            db.run(op.sql);
+          } catch (err) {
+            throw new DbsError({
+              code: 'MIGRATE',
+              message: `Migration operation failed on table "${op.table}"`,
+              cause: err instanceof Error ? err.message : String(err),
+              engine: 'sqlite',
+              operation: op.type,
+              table: op.table,
+              column: op.column,
+            });
+          }
         }
       } finally {
         db.exec('PRAGMA foreign_keys = ON');
@@ -564,6 +591,21 @@ export class SqliteAdapter implements DatabaseAdapter {
 
       colDefs.push('  ' + parts.join(' '));
     }
+
+    // FK constraints inline (SQLite requires them in CREATE TABLE)
+    for (const fk of table.foreignKeys) {
+      const srcCols = fk.columns.map((c) => this.q(c)).join(', ');
+      const refCols = fk.refColumns.map((c) => this.q(c)).join(', ');
+      let fkDef = `  FOREIGN KEY (${srcCols}) REFERENCES ${this.q(fk.refTable)} (${refCols})`;
+      if (fk.onDelete && fk.onDelete !== 'no action') {
+        fkDef += ` ON DELETE ${fk.onDelete.toUpperCase()}`;
+      }
+      if (fk.onUpdate && fk.onUpdate !== 'no action') {
+        fkDef += ` ON UPDATE ${fk.onUpdate.toUpperCase()}`;
+      }
+      colDefs.push(fkDef);
+    }
+
     lines.push(colDefs.join(',\n'));
     lines.push(')');
 
@@ -672,34 +714,151 @@ export class SqliteAdapter implements DatabaseAdapter {
 
   // ---- Internal: diff foreign keys ----
 
+  /** Build a structural key for FK comparison (ignores name). */
+  private fkKey(fk: FKDef): string {
+    const cols = fk.columns.map((c) => c.toLowerCase()).join(',');
+    const refCols = fk.refColumns.map((c) => c.toLowerCase()).join(',');
+    const onDel = (fk.onDelete ?? 'no action').toLowerCase();
+    const onUpd = (fk.onUpdate ?? 'no action').toLowerCase();
+    return `${cols}|${fk.refTable.toLowerCase()}|${refCols}|${onDel}|${onUpd}`;
+  }
+
   private planFKChanges(
     tableName: string,
     current: FKDef[],
     target: FKDef[],
   ): MigrationOp[] {
     const ops: MigrationOp[] = [];
-    const curMap = new Map<string, FKDef>();
-    for (const fk of current) curMap.set(fk.name.toLowerCase(), fk);
-    const tgtMap = new Map<string, FKDef>();
-    for (const fk of target) tgtMap.set(fk.name.toLowerCase(), fk);
 
-    // DROP: FKs in current but not in target
-    for (const [name, fk] of curMap) {
-      if (!tgtMap.has(name)) {
+    // Match by structural key (columns + refTable + refColumns + onDelete + onUpdate),
+    // NOT by name. SQLite auto-generates FK names that differ from DBML-parsed names.
+    const curByKey = new Map<string, FKDef>();
+    for (const fk of current) {
+      curByKey.set(this.fkKey(fk), fk);
+    }
+    const tgtByKey = new Map<string, FKDef>();
+    for (const fk of target) {
+      tgtByKey.set(this.fkKey(fk), fk);
+    }
+
+    // DROP: FKs in current but not in target (structurally)
+    for (const [key, fk] of curByKey) {
+      if (!tgtByKey.has(key)) {
         ops.push(this.opDropFK(tableName, fk));
       }
     }
 
-    // ADD: FKs in target but not in current (or definition changed)
-    for (const [name, fk] of tgtMap) {
-      const cur = curMap.get(name);
-      if (!cur) {
-        ops.push(this.opAddFK(tableName, fk));
-      } else if (!this.fkEq(cur, fk)) {
-        ops.push(this.opDropFK(tableName, cur));
+    // ADD: FKs in target but not in current (structurally)
+    for (const [key, fk] of tgtByKey) {
+      if (!curByKey.has(key)) {
         ops.push(this.opAddFK(tableName, fk));
       }
     }
+
+    return ops;
+  }
+
+  /** Check if any FK changed structurally between current and target. */
+  private hasFKChanges(current: FKDef[], target: FKDef[]): boolean {
+    const curKeys = new Set(current.map((fk) => this.fkKey(fk)));
+    const tgtKeys = new Set(target.map((fk) => this.fkKey(fk)));
+    if (curKeys.size !== tgtKeys.size) return true;
+    for (const k of curKeys) {
+      if (!tgtKeys.has(k)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Generate table rebuild operations for SQLite.
+   *
+   * SQLite does not support ALTER TABLE ADD/DROP FOREIGN KEY,
+   * so FK changes require rebuilding the table:
+   *   1. CREATE TABLE _dbs_rebuild_X (target columns + FKs inline)
+   *   2. INSERT INTO _dbs_rebuild_X SELECT target_columns FROM original
+   *   3. DROP TABLE original
+   *   4. ALTER TABLE _dbs_rebuild_X RENAME TO original
+   *
+   * Returns multiple MigrationOps (one per SQL statement).
+   */
+  private planTableRebuild(
+    target: TableDefinition,
+    current: TableDefinition,
+  ): MigrationOp[] {
+    const tableName = target.name;
+    const tempName = `_dbs_rebuild_${tableName}`;
+    const ops: MigrationOp[] = [];
+
+    // ---- 1. CREATE TABLE _new with target columns + FKs ----
+    const createLines: string[] = [];
+    createLines.push(`CREATE TABLE ${this.q(tempName)} (`);
+
+    const colDefs: string[] = [];
+    for (const col of target.columns) {
+      const parts: string[] = [];
+      parts.push(this.q(col.name));
+      parts.push(col.type.toUpperCase());
+
+      if (col.primaryKey) {
+        parts.push('PRIMARY KEY');
+        if (col.autoIncrement) parts.push('AUTOINCREMENT');
+      }
+      if (!col.nullable && !col.primaryKey) parts.push('NOT NULL');
+      if (col.unique && !col.primaryKey) parts.push('UNIQUE');
+      if (col.defaultValue !== undefined) parts.push(`DEFAULT ${col.defaultValue}`);
+
+      colDefs.push('  ' + parts.join(' '));
+    }
+
+    // FK constraints inline
+    for (const fk of target.foreignKeys) {
+      const srcCols = fk.columns.map((c) => this.q(c)).join(', ');
+      const refCols = fk.refColumns.map((c) => this.q(c)).join(', ');
+      let fkDef = `  FOREIGN KEY (${srcCols}) REFERENCES ${this.q(fk.refTable)} (${refCols})`;
+      if (fk.onDelete && fk.onDelete !== 'no action') {
+        fkDef += ` ON DELETE ${fk.onDelete.toUpperCase()}`;
+      }
+      if (fk.onUpdate && fk.onUpdate !== 'no action') {
+        fkDef += ` ON UPDATE ${fk.onUpdate.toUpperCase()}`;
+      }
+      colDefs.push(fkDef);
+    }
+
+    createLines.push(colDefs.join(',\n'));
+    createLines.push(')');
+
+    ops.push({
+      type: 'rebuild' as const,
+      table: tableName,
+      sql: `/* Rebuilding "${tableName}" for FK changes */\n${createLines.join('\n')}`,
+    });
+
+    // ---- 2. Copy data (matching columns by name) ----
+    const targetCols = target.columns;
+    const commonCols = current.columns.filter((c) =>
+      targetCols.some((tc) => tc.name.toLowerCase() === c.name.toLowerCase())
+    );
+    const colNames = commonCols.map((c) => this.q(c.name)).join(', ');
+
+    ops.push({
+      type: 'rebuild' as const,
+      table: tableName,
+      sql: `INSERT INTO ${this.q(tempName)} (${colNames})\nSELECT ${colNames}\nFROM ${this.q(tableName)}`,
+    });
+
+    // ---- 3. Drop original ----
+    ops.push({
+      type: 'rebuild' as const,
+      table: tableName,
+      sql: `DROP TABLE ${this.q(tableName)}`,
+    });
+
+    // ---- 4. Rename temp to original ----
+    ops.push({
+      type: 'rebuild' as const,
+      table: tableName,
+      sql: `ALTER TABLE ${this.q(tempName)} RENAME TO ${this.q(tableName)}`,
+    });
 
     return ops;
   }

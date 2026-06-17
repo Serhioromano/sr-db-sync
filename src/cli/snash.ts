@@ -183,15 +183,8 @@ async function interactiveSnash(
         dsn = config.dsn;
         file = initialFile || config.file;
 
-        console.log('');
-        console.log(`  Profile: ${choice}`);
-        console.log(`  Engine:  ${engine}`);
-        console.log(`  DSN:     ${dsn}`);
-        console.log(`  Output:  ${file}`);
-        console.log('');
-
         // Skip DSN config — go straight to confirm
-        await confirmAndRun(prompts, engine, dsn, file, initialPrefix ?? '');
+        await confirmAndRun(prompts, engine, dsn, file, initialPrefix ?? '', true);
         return;
       }
       // User chose manual — fall through to DSN config below
@@ -321,6 +314,7 @@ async function confirmAndRun(
   dsn: string,
   file: string,
   prefix: string,
+  fromProfile = false,
 ): Promise<void> {
   console.log('');
   console.log(`  Engine:  ${engine}`);
@@ -337,28 +331,30 @@ async function confirmAndRun(
     process.exit(0);
   }
 
-  // Save as profile (optional)
-  const saveChoice = await prompts.confirm({
-    message: 'Save these settings as a profile for future use?',
-    initialValue: false,
-  });
-
-  if (!prompts.isCancel(saveChoice) && saveChoice) {
-    const profileName = await prompts.text({
-      message: 'Profile name:',
-      placeholder: 'prod',
-      validate: (v: string) => {
-        if (!v.trim()) return 'Profile name is required';
-        if (!/^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(v))
-          return 'Only letters, digits, hyphens, and underscores';
-        return undefined;
-      },
+  // Save as profile (only when NOT coming from an existing profile)
+  if (!fromProfile) {
+    const saveChoice = await prompts.confirm({
+      message: 'Save these settings as a profile for future use?',
+      initialValue: false,
     });
 
-    if (!prompts.isCancel(profileName)) {
-      const profilesFile = 'migration/.dbs.json';
-      saveProfile(profilesFile, profileName as string, { dsn, engine, file });
-      console.log(`  ✓ Profile "${profileName}" saved to ${profilesFile}`);
+    if (!prompts.isCancel(saveChoice) && saveChoice) {
+      const profileName = await prompts.text({
+        message: 'Profile name:',
+        placeholder: 'prod',
+        validate: (v: string) => {
+          if (!v.trim()) return 'Profile name is required';
+          if (!/^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(v))
+            return 'Only letters, digits, hyphens, and underscores';
+          return undefined;
+        },
+      });
+
+      if (!prompts.isCancel(profileName)) {
+        const profilesFile = 'migration/.dbs.json';
+        saveProfile(profilesFile, profileName as string, { dsn, engine, file });
+        console.log(`  ✓ Profile "${profileName}" saved to ${profilesFile}`);
+      }
     }
   }
 
