@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+### Added (Phase 4)
+- `src/adapters/sqlite.ts` — адаптер SQLite (Snash):
+  - `connect(dsn)` / `disconnect()` — подключение к SQLite через `bun:sqlite` (встроенный, без внешних зависимостей)
+  - Статические поля `dsnFields` и `buildDsn()` для интерактивного построения DSN
+  - `getTables()` — список таблиц из `sqlite_master` (исключая `sqlite_*`)
+  - `getColumns(tableName)` — колонки через `PRAGMA table_info`, автоопределение AUTOINCREMENT из CREATE TABLE SQL, канонизация типов
+  - `getIndexes(tableName)` — индексы через `PRAGMA index_list` + `PRAGMA index_info`, фильтрация `sqlite_autoindex_*`, разрешение имён колонок
+  - `getForeignKeys(tableName)` — внешние ключи через `PRAGMA foreign_key_list`, группировка по constraint id, нормализация ON DELETE/UPDATE
+  - `getTriggers(tableName)` — триггеры из `sqlite_master`, парсинг timing (BEFORE/AFTER/INSTEAD OF) и event (INSERT/UPDATE/DELETE)
+  - `getViews()` — представления из `sqlite_master`
+  - `getProcedures()` / `getEnums()` — возвращают пустой массив (SQLite не поддерживает)
+  - Migrate-методы (`createTable`, `addColumn`, `dropColumn`, `modifyColumn`, `createIndex`, `dropIndex`, `addForeignKey`, `dropForeignKey`, `beginTransaction`, `commit`, `rollback`) — заглушки с ошибками до Фазы 8
+- **Тесты:** 29 тестов в `test/sqlite-adapter.test.ts`:
+  - 2 теста DSN-контракта (dsnFields, buildDsn)
+  - 5 тестов connect/disconnect (in-memory, file DB, nonexistent file, double disconnect, без connect)
+  - 2 теста getTables (список таблиц, исключение sqlite_*)
+  - 2 теста getColumns (полная таблица users, таблица без AUTOINCREMENT)
+  - 3 теста getIndexes (пользовательские индексы, исключение autoindex, пустой массив)
+  - 3 теста getForeignKeys (одиночный FK, два FK, пустой массив)
+  - 3 теста getTriggers (AFTER INSERT, BEFORE DELETE, пустой массив)
+  - 1 тест getViews
+  - 2 теста getProcedures/getEnums
+  - 1 тест полного roundtrip-извлечения схемы
+  - 5 edge cases (минимальная таблица, composite PK, SET NULL/RESTRICT FK, INSTEAD OF триггер, множественный disconnect)
+
 ### Added (Phase 3)
 - `src/parser/dbml-lexer.ts` — токенизатор DBML: ключевые слова (Table, Project, Enum, Ref, TableGroup, Indexes, Note, Records), символы, идентификаторы, строки (одинарные/двойные/backtick), многострочные строки, числа, комментарии `//` и `--` (LINE_COMMENT), отслеживание номеров строк и колонок
 - `src/parser/dbml-parser.ts` — рекурсивный парсер DBML → `SchemaIR`:

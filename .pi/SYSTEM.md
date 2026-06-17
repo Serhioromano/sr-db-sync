@@ -8,6 +8,7 @@
 - **Фаза 1** (Типы и интерфейсы) завершена.
 - **Фаза 2** (CLI-скелет) завершена.
 - **Фаза 3** (Парсер DBML) завершена.
+- **Фаза 4** (Адаптер SQLite, Snash) завершена.
 - Полноценный парсинг флагов через `node:util.parseArgs`.
 - Загрузка и резолв профилей из `.dbs.json`.
 - Интерактивный режим через `@clack/prompts` (без подкоманды).
@@ -15,10 +16,11 @@
 - Поддержка `--profile`, `--dsn`, `--engine`, `--prefix`, `--output`, `--input`, `--dry-run`, `--insert`, `--profiles-file`.
 - Корректные exit codes (0–5).
 - DBML лексер, парсер → SchemaIR, парсинг @dbs-комментариев.
+- Адаптер SQLite: connect/disconnect, getTables, getColumns, getIndexes, getForeignKeys, getTriggers, getViews, getProcedures (пусто), getEnums (пусто).
 
 ## Следующая фаза
 
-Фаза 4: Адаптер SQLite (Snash) — чтение схемы из SQLite через `bun:sqlite`.
+Фаза 5: Генератор DBML — `SchemaIR` → DBML-строка.
 
 ## Ключевые файлы
 
@@ -33,6 +35,7 @@
 | `src/cli/migrate.ts` | Подкоманда migrate (заглушка) |
 | `src/core/types.ts` | Все типы схемы БД, SchemaIR, MigrationPlan |
 | `src/adapters/adapter.interface.ts` | Интерфейс DatabaseAdapter |
+| `src/adapters/sqlite.ts` | Адаптер SQLite: Snash (чтение схемы) + заглушки Migrate (Фаза 8) |
 | `src/config/config.types.ts` | Типы конфигурации профилей |
 | `src/config/profiles.ts` | Загрузка и резолв `.dbs.json` |
 | `src/parser/dbml-lexer.ts` | Токенизатор DBML (ключевые слова, символы, строки, числа, комментарии) |
