@@ -104,40 +104,32 @@
 
 ---
 
-## Фаза 7: Diff-движок
+## Фаза 7: Адаптер SQLite (Migrate)
 
 | Задача | Файл | Детали |
 |--------|------|--------|
-| Сравнение схем | `src/core/differ.ts` | Сравнивает `SchemaIR` (текущая БД) и `SchemaIR` (из DBML) → `MigrationPlan` |
-| Генерация плана | `src/core/differ.ts` | Таблицы: create / skip. Колонки: add / drop / modify / skip. Индексы: create / drop / skip. FK: add / drop / skip |
-| Типы | `src/core/types.ts` | `MigrationPlan` = массив `MigrationOp` (type, table, column, index, fk, sql) |
+| Миграция схемы | `src/adapters/sqlite.ts` | `migrateToSchema(target, options?)` — адаптер сам читает текущую схему, сравнивает с целевой SchemaIR, генерирует SQLite-специфичный SQL, выполняет (если не dryRun), возвращает MigrationPlan |
+| Интерфейс | `src/adapters/adapter.interface.ts` | `migrateToSchema(target: SchemaIR, options?: MigrateOptions): Promise<MigrationPlan>` — заменяет 8 индивидуальных методов записи |
+| Типы | `src/core/types.ts` | `MigrateOptions` (dryRun, insertRecords), `MigrationPlan`, `MigrationOp` |
 
-**Критерий готовности:** подаём два `SchemaIR` → получаем корректный `MigrationPlan` с минимальным набором операций.
-
----
-
-## Фаза 8: Адаптер SQLite (Migrate)
-
-| Задача | Файл | Детали |
-|--------|------|--------|
-| Запись схемы | `src/adapters/sqlite.ts` | `createTable()`, `addColumn()`, `dropColumn()`, `modifyColumn()`, `createIndex()`, `dropIndex()`, `addForeignKey()`, `dropForeignKey()` |
-| Транзакции | `src/adapters/sqlite.ts` | `beginTransaction()`, `commit()`, `rollback()` |
+**Архитектурное решение:** никакого промежуточного «differ» слоя. Адаптер получает целевой SchemaIR и делает всё сам: читает текущую схему, сравнивает, генерит engine-специфичный SQL, выполняет. Это правильный подход, потому что логика сравнения и SQL-генерации завязана на конкретный движок (SQLite MODIFY COLUMN ≠ MySQL MODIFY COLUMN, разные форматы идентификаторов, разные supported операции).
 
 **Особенности SQLite:**
 - `ALTER TABLE DROP COLUMN` доступен с SQLite 3.35.0+
-- `ALTER TABLE MODIFY COLUMN` НЕ поддерживается → обходной путь (создать новую таблицу, скопировать данные, удалить старую, переименовать)
-- FK нужно включать через `PRAGMA foreign_keys = ON`
+- `ALTER TABLE MODIFY COLUMN` НЕ поддерживается → генерируется комментарий-предупреждение; реальная поддержка через table rebuild будет в будущей фазе
+- FK операции требуют table rebuild → генерируется комментарий-предупреждение
+- Выполнение: `PRAGMA foreign_keys = OFF` → SQL → `PRAGMA foreign_keys = ON`
 
-**Критерий готовности:** `MigrationPlan` → выполненные SQL-команды в SQLite. Roundtrip: DBML → миграция на чистую БД → snash → идентичный DBML.
+**Критерий готовности:** `adapter.migrateToSchema(target, { dryRun: true })` возвращает корректный MigrationPlan. `adapter.migrateToSchema(target)` выполняет CREATE TABLE и ALTER TABLE ADD/DROP COLUMN в реальной SQLite БД. 13 новых тестов.
 
 ---
 
-## Фаза 9: Команда Migrate (полная)
+## Фаза 8: Команда Migrate (полная)
 
 | Задача | Файл | Детали |
 |--------|------|--------|
-| Бизнес-логика | `src/core/migrator.ts` | Алгоритм из SPEC 6.2: DBML → SchemaIR, текущая БД → SchemaIR, differ → MigrationPlan, выполнение SQL |
-| Интеграция | `src/cli/migrate.ts` | Связывает профили/флаги, парсер, адаптер, differ, migrator |
+| Бизнес-логика | `src/core/migrator.ts` | Алгоритм из SPEC 6.2: DBML → parseDbml → SchemaIR, adapter.connect → adapter.migrateToSchema(targetIR, options) |
+| Интеграция | `src/cli/migrate.ts` | Связывает профили/флаги, парсер, адаптер |
 | Цветной вывод SQL | `src/cli/migrate.ts` | ANSI-цвета по SPEC 6.4 (зелёный CREATE, синий ADD, жёлтый MODIFY, красный DROP, серый комментарии, жирный ключевые слова) |
 | Dry-run | `src/cli/migrate.ts` | Флаг `--dry-run` → вывод SQL без выполнения |
 | Вставка записей | `src/cli/migrate.ts` | Флаг `--insert` → проверка и вставка Records из DBML (если есть) |
@@ -149,7 +141,7 @@
 
 ---
 
-## Фаза 10: Адаптер MySQL (Snash + Migrate)
+## Фаза 9: Адаптер MySQL (Snash + Migrate)
 
 | Задача | Файл | Детали |
 |--------|------|--------|
@@ -163,7 +155,7 @@
 
 ---
 
-## Фаза 11: Финальная полировка
+## Фаза 10: Финальная полировка
 
 | Задача | Детали |
 |--------|--------|
@@ -187,19 +179,18 @@
        │    └─► Фаза 6: Snash ─────────────────────────┐
        │         (зависит: Фаза 1, 2, 4, 5)             │
        │                                                │
-       ├─► Фаза 3: DBML-парсер                          ├─► Фаза 11: Полировка
+       ├─► Фаза 3: DBML-парсер                          ├─► Фаза 10: Полировка
        │    └─► Фаза 5: DBML-генератор                  │
-       │         └─► Фаза 7: Diff-движок                │
-       │              └─► Фаза 9: Migrate ──────────────┘
-       │                   (зависит: Фаза 1, 2, 3, 5, 7, 8)
+       │         └─► Фаза 8: Migrate ───────────────────┘
+       │              (зависит: Фаза 1, 2, 3, 5, 7)
        │
        └─► Фаза 4: SQLite Snash
-            └─► Фаза 8: SQLite Migrate
-                 └─► Фаза 10: MySQL
-                      (зависит: Фаза 3, 4, 5, 7, 8 — повторяет паттерн)
+            └─► Фаза 7: SQLite Migrate
+                 └─► Фаза 9: MySQL
+                      (зависит: Фаза 3, 4, 5, 7 — повторяет паттерн)
 ```
 
-**Ключевой момент:** Адаптеры MySQL (Фаза 10) можно делать параллельно с Фазой 9 после завершения Фазы 8 — они независимы, но используют те же интерфейсы.
+**Ключевой момент:** Адаптеры MySQL (Фаза 9) можно делать параллельно с Фазой 8 после завершения Фазы 7 — они независимы, но используют те же интерфейсы.
 
 ---
 
@@ -214,8 +205,7 @@
 | 4 | SQLite Snash | ⭐⭐ |
 | 5 | DBML-генератор | ⭐⭐⭐ |
 | 6 | Snash (полная) | ⭐⭐ |
-| 7 | Diff-движок | ⭐⭐⭐⭐ |
-| 8 | SQLite Migrate | ⭐⭐⭐ |
-| 9 | Migrate (полная) | ⭐⭐⭐ |
-| 10 | MySQL | ⭐⭐⭐⭐ |
-| 11 | Полировка | ⭐⭐ |
+| 7 | SQLite Migrate | ⭐⭐⭐ |
+| 8 | Migrate (полная) | ⭐⭐⭐ |
+| 9 | MySQL | ⭐⭐⭐⭐ |
+| 10 | Полировка | ⭐⭐ |

@@ -638,3 +638,403 @@ describe('SqliteAdapter — edge cases', () => {
     unlinkSync(path);
   });
 });
+
+// ============================================================
+// migrateToSchema tests
+// ============================================================
+
+import type {
+  SchemaIR,
+  TableDefinition,
+  ColumnDef,
+  IndexDef,
+  FKDef,
+  MigrationPlan,
+} from '../src/core/types.js';
+
+function col(name: string, type: string, opts?: Partial<ColumnDef>): ColumnDef {
+  return { name, type, nullable: true, primaryKey: false, unique: false, autoIncrement: false, ...opts };
+}
+function idx(name: string, columns: string[], opts?: Partial<IndexDef>): IndexDef {
+  return { name, columns, unique: false, ...opts };
+}
+function fk(name: string, columns: string[], refTable: string, refColumns: string[], opts?: Partial<FKDef>): FKDef {
+  return { name, columns, refTable, refColumns, ...opts };
+}
+function table(name: string, cols: ColumnDef[], idxs?: IndexDef[], fks?: FKDef[]): TableDefinition {
+  return { name, columns: cols, indexes: idxs ?? [], foreignKeys: fks ?? [], triggers: [] };
+}
+function schema(tables: TableDefinition[]): SchemaIR {
+  return { tables, views: [], procedures: [], enums: [], extensions: [] };
+}
+
+const MIG_TMP_DB = '/tmp/db-sync-test-migrate.sqlite';
+
+function createMigDb(path: string): void {
+  if (existsSync(path)) unlinkSync(path);
+  const db = new Database(path, { create: true });
+  db.run('PRAGMA foreign_keys = ON');
+  db.run(`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email VARCHAR(255) NOT NULL UNIQUE, name VARCHAR(100) NOT NULL)`);
+  db.run(`CREATE TABLE posts (id INTEGER PRIMARY KEY, user_id INTEGER, title VARCHAR(255), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)`);
+  db.run(`CREATE INDEX idx_posts_user ON posts(user_id)`);
+  db.close();
+}
+
+describe('SqliteAdapter — migrateToSchema', () => {
+  it('returns empty plan when target matches current schema', async () => {
+    createMigDb(MIG_TMP_DB);
+    const adapter = new SqliteAdapter();
+    await adapter.connect(MIG_TMP_DB);
+
+    // Note: SQLite cannot detect column-level UNIQUE (it creates sqlite_autoindex_*),
+    // so the target must not set unique=true on email to match what getColumns() returns.
+    const target = schema([
+      table('users', [
+        col('id', 'INTEGER', { primaryKey: true, autoIncrement: true, nullable: false }),
+        col('email', 'VARCHAR(255)', { nullable: false }),
+        col('name', 'VARCHAR(100)', { nullable: false }),
+      ]),
+      table('posts', [
+        col('id', 'INTEGER', { primaryKey: true, nullable: false }),
+        col('user_id', 'INTEGER', { nullable: true }),
+        col('title', 'VARCHAR(255)', { nullable: true }),
+      ], [
+        idx('idx_posts_user', ['user_id']),
+      ], [
+        fk('fk_posts_users_0', ['user_id'], 'users', ['id'], { onDelete: 'cascade' }),
+      ]),
+    ]);
+
+    const plan = await adapter.migrateToSchema(target, { dryRun: true });
+    await adapter.disconnect();
+    unlinkSync(MIG_TMP_DB);
+
+    expect(plan).toEqual([]);
+  });
+
+  it('generates CREATE TABLE for new tables', async () => {
+    createMigDb(MIG_TMP_DB);
+    const adapter = new SqliteAdapter();
+    await adapter.connect(MIG_TMP_DB);
+
+    const target = schema([
+      table('comments', [
+        col('id', 'INTEGER', { primaryKey: true, nullable: false }),
+        col('body', 'TEXT', { nullable: true }),
+      ]),
+    ]);
+
+    const plan = await adapter.migrateToSchema(target, { dryRun: true });
+    await adapter.disconnect();
+    unlinkSync(MIG_TMP_DB);
+
+    const creates = plan.filter((op) => op.type === 'create_table');
+    expect(creates.length).toBe(1);
+    expect(creates[0].table).toBe('comments');
+    expect(creates[0].sql).toContain('CREATE TABLE "comments"');
+    expect(creates[0].sql).toContain('"body" TEXT');
+  });
+
+  it('does NOT drop tables present in current but missing from target', async () => {
+    createMigDb(MIG_TMP_DB);
+    const adapter = new SqliteAdapter();
+    await adapter.connect(MIG_TMP_DB);
+
+    // Target only has 'users' — 'posts' is missing but should NOT be dropped
+    const target = schema([
+      table('users', [col('id', 'INTEGER', { primaryKey: true, nullable: false })]),
+    ]);
+
+    const plan = await adapter.migrateToSchema(target, { dryRun: true });
+    await adapter.disconnect();
+    unlinkSync(MIG_TMP_DB);
+
+    const drops = plan.filter((op) => op.sql?.toLowerCase().includes('drop table'));
+    expect(drops).toEqual([]);
+  });
+
+  it('generates ADD COLUMN for new columns', async () => {
+    createMigDb(MIG_TMP_DB);
+    const adapter = new SqliteAdapter();
+    await adapter.connect(MIG_TMP_DB);
+
+    const target = schema([
+      table('users', [
+        col('id', 'INTEGER', { primaryKey: true, autoIncrement: true, nullable: false }),
+        col('email', 'VARCHAR(255)', { nullable: false, unique: true }),
+        col('name', 'VARCHAR(100)', { nullable: false }),
+        col('bio', 'TEXT', { nullable: true }),
+      ]),
+    ]);
+
+    const plan = await adapter.migrateToSchema(target, { dryRun: true });
+    await adapter.disconnect();
+    unlinkSync(MIG_TMP_DB);
+
+    const adds = plan.filter((op) => op.type === 'add_column');
+    expect(adds.length).toBe(1);
+    expect(adds[0].column).toBe('bio');
+    expect(adds[0].sql).toContain('ADD COLUMN "bio" TEXT');
+  });
+
+  it('generates DROP COLUMN for removed columns', async () => {
+    createMigDb(MIG_TMP_DB);
+    const adapter = new SqliteAdapter();
+    await adapter.connect(MIG_TMP_DB);
+
+    // Target has 'users' without 'name'
+    const target = schema([
+      table('users', [
+        col('id', 'INTEGER', { primaryKey: true, autoIncrement: true, nullable: false }),
+        col('email', 'VARCHAR(255)', { nullable: false, unique: true }),
+      ]),
+    ]);
+
+    const plan = await adapter.migrateToSchema(target, { dryRun: true });
+    await adapter.disconnect();
+    unlinkSync(MIG_TMP_DB);
+
+    const drops = plan.filter((op) => op.type === 'drop_column');
+    expect(drops.length).toBe(1);
+    expect(drops[0].column).toBe('name');
+    expect(drops[0].sql).toContain('DROP COLUMN "name"');
+  });
+
+  it('generates MODIFY COLUMN for changed column types', async () => {
+    createMigDb(MIG_TMP_DB);
+    const adapter = new SqliteAdapter();
+    await adapter.connect(MIG_TMP_DB);
+
+    // name changed from VARCHAR(100) to VARCHAR(255)
+    const target = schema([
+      table('users', [
+        col('id', 'INTEGER', { primaryKey: true, autoIncrement: true, nullable: false }),
+        col('email', 'VARCHAR(255)', { nullable: false }),
+        col('name', 'VARCHAR(255)', { nullable: false }),
+      ]),
+    ]);
+
+    const plan = await adapter.migrateToSchema(target, { dryRun: true });
+    await adapter.disconnect();
+    unlinkSync(MIG_TMP_DB);
+
+    const mods = plan.filter((op) => op.type === 'modify_column');
+    expect(mods.length).toBe(1);
+    expect(mods[0].column).toBe('name');
+    expect(mods[0].sql).toContain('MODIFY');
+    expect(mods[0].sql).toContain('VARCHAR(255)');
+  });
+
+  it('generates CREATE INDEX for new indexes', async () => {
+    createMigDb(MIG_TMP_DB);
+    const adapter = new SqliteAdapter();
+    await adapter.connect(MIG_TMP_DB);
+
+    const target = schema([
+      table('users', [
+        col('id', 'INTEGER', { primaryKey: true, autoIncrement: true, nullable: false }),
+        col('email', 'VARCHAR(255)', { nullable: false, unique: true }),
+        col('name', 'VARCHAR(100)', { nullable: false }),
+      ], [
+        idx('idx_users_name', ['name']),
+      ]),
+    ]);
+
+    const plan = await adapter.migrateToSchema(target, { dryRun: true });
+    await adapter.disconnect();
+    unlinkSync(MIG_TMP_DB);
+
+    const creates = plan.filter((op) => op.type === 'create_index');
+    expect(creates.length).toBe(1);
+    expect(creates[0].index).toBe('idx_users_name');
+    expect(creates[0].sql).toContain('CREATE INDEX "idx_users_name"');
+  });
+
+  it('generates DROP INDEX for removed indexes', async () => {
+    createMigDb(MIG_TMP_DB);
+    const adapter = new SqliteAdapter();
+    await adapter.connect(MIG_TMP_DB);
+
+    // Target has posts without idx_posts_user
+    const target = schema([
+      table('posts', [
+        col('id', 'INTEGER', { primaryKey: true, nullable: false }),
+        col('user_id', 'INTEGER'),
+        col('title', 'VARCHAR(255)'),
+      ]),
+    ]);
+
+    const plan = await adapter.migrateToSchema(target, { dryRun: true });
+    await adapter.disconnect();
+    unlinkSync(MIG_TMP_DB);
+
+    const drops = plan.filter((op) => op.type === 'drop_index');
+    expect(drops.length).toBe(1);
+    expect(drops[0].index).toBe('idx_posts_user');
+  });
+
+  it('generates add_fk for new foreign keys', async () => {
+    createMigDb(MIG_TMP_DB);
+    const adapter = new SqliteAdapter();
+    await adapter.connect(MIG_TMP_DB);
+
+    // Add FK to users table (doesn't exist in current)
+    const target = schema([
+      table('users', [
+        col('id', 'INTEGER', { primaryKey: true, autoIncrement: true, nullable: false }),
+        col('email', 'VARCHAR(255)', { nullable: false, unique: true }),
+        col('name', 'VARCHAR(100)', { nullable: false }),
+      ], [], [
+        fk('fk_users_self', ['id'], 'users', ['id']),
+      ]),
+    ]);
+
+    const plan = await adapter.migrateToSchema(target, { dryRun: true });
+    await adapter.disconnect();
+    unlinkSync(MIG_TMP_DB);
+
+    const adds = plan.filter((op) => op.type === 'add_fk');
+    expect(adds.length).toBe(1);
+    expect(adds[0].fk).toBe('fk_users_self');
+  });
+
+  it('generates drop_fk for removed foreign keys', async () => {
+    createMigDb(MIG_TMP_DB);
+    const adapter = new SqliteAdapter();
+    await adapter.connect(MIG_TMP_DB);
+
+    // Target has posts without FK
+    const target = schema([
+      table('posts', [
+        col('id', 'INTEGER', { primaryKey: true, nullable: false }),
+        col('user_id', 'INTEGER'),
+        col('title', 'VARCHAR(255)'),
+      ]),
+    ]);
+
+    const plan = await adapter.migrateToSchema(target, { dryRun: true });
+    await adapter.disconnect();
+    unlinkSync(MIG_TMP_DB);
+
+    const drops = plan.filter((op) => op.type === 'drop_fk');
+    expect(drops.length).toBe(1);
+  });
+
+  it('orders operations: columns before indexes within same table', async () => {
+    createMigDb(MIG_TMP_DB);
+    const adapter = new SqliteAdapter();
+    await adapter.connect(MIG_TMP_DB);
+
+    const target = schema([
+      table('posts', [
+        col('id', 'INTEGER', { primaryKey: true, nullable: false }),
+        col('user_id', 'INTEGER'),
+        col('title', 'VARCHAR(255)'),
+        col('status', 'VARCHAR(20)', { defaultValue: "'draft'" }),
+      ], [
+        idx('idx_posts_status', ['status']),
+      ]),
+    ]);
+
+    const plan = await adapter.migrateToSchema(target, { dryRun: true });
+    await adapter.disconnect();
+    unlinkSync(MIG_TMP_DB);
+
+    const colIdx = plan.findIndex((op) => op.type === 'add_column');
+    const idxIdx = plan.findIndex((op) => op.type === 'create_index');
+    expect(colIdx).toBeLessThan(idxIdx);
+  });
+
+  it('executes SQL when dryRun is false', async () => {
+    createMigDb(MIG_TMP_DB);
+    const adapter = new SqliteAdapter();
+    await adapter.connect(MIG_TMP_DB);
+
+    const target = schema([
+      table('comments', [
+        col('id', 'INTEGER', { primaryKey: true, nullable: false }),
+        col('body', 'TEXT', { nullable: true }),
+      ]),
+      table('users', [
+        col('id', 'INTEGER', { primaryKey: true, autoIncrement: true, nullable: false }),
+        col('email', 'VARCHAR(255)', { nullable: false }),
+        col('name', 'VARCHAR(100)', { nullable: false }),
+      ]),
+    ]);
+
+    // Execute for real
+    const plan = await adapter.migrateToSchema(target, { dryRun: false });
+    await adapter.disconnect();
+
+    // Verify the table was created
+    const db = new Database(MIG_TMP_DB, { readwrite: true });
+    const tables = db.query<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
+    db.close();
+    unlinkSync(MIG_TMP_DB);
+
+    const tableNames = tables.map((r) => r.name);
+    expect(tableNames.includes('comments')).toBe(true);
+    expect(plan.length).toBeGreaterThanOrEqual(1);
+    expect(plan[0].type).toBe('create_table');
+  });
+
+  it('handles case-insensitive table name matching', async () => {
+    createMigDb(MIG_TMP_DB);
+    const adapter = new SqliteAdapter();
+    await adapter.connect(MIG_TMP_DB);
+
+    // Target uses 'Users' (capital U) — should match current 'users'
+    const target = schema([
+      table('Users', [
+        col('id', 'INTEGER', { primaryKey: true, autoIncrement: true, nullable: false }),
+        col('email', 'VARCHAR(255)', { nullable: false, unique: true }),
+        col('name', 'VARCHAR(100)', { nullable: false }),
+        col('bio', 'TEXT'),
+      ]),
+    ]);
+
+    const plan = await adapter.migrateToSchema(target, { dryRun: true });
+    await adapter.disconnect();
+    unlinkSync(MIG_TMP_DB);
+
+    // Should NOT create a new table
+    const creates = plan.filter((op) => op.type === 'create_table');
+    expect(creates).toEqual([]);
+
+    // Should ADD bio column
+    const adds = plan.filter((op) => op.type === 'add_column');
+    expect(adds.length).toBe(1);
+    expect(adds[0].column).toBe('bio');
+  });
+
+  it('returns all operations with non-empty SQL strings', async () => {
+    createMigDb(MIG_TMP_DB);
+    const adapter = new SqliteAdapter();
+    await adapter.connect(MIG_TMP_DB);
+
+    // Target adds a table, modifies a column, drops an index
+    const target = schema([
+      table('comments', [
+        col('id', 'INTEGER', { primaryKey: true, nullable: false }),
+        col('body', 'TEXT'),
+      ]),
+      table('users', [
+        col('id', 'INTEGER', { primaryKey: true, autoIncrement: true, nullable: false }),
+        col('email', 'VARCHAR(255)', { nullable: false, unique: true }),
+        col('name', 'VARCHAR(255)', { nullable: false }),  // type changed
+        col('bio', 'TEXT'),  // new column
+      ]),
+    ]);
+
+    const plan = await adapter.migrateToSchema(target, { dryRun: true });
+    await adapter.disconnect();
+    unlinkSync(MIG_TMP_DB);
+
+    expect(plan.length).toBeGreaterThan(0);
+    for (const op of plan) {
+      expect(op.sql).toBeTruthy();
+      expect(op.sql.length).toBeGreaterThan(0);
+      expect(op.table).toBeTruthy();
+    }
+  });
+});

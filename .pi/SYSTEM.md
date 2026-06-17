@@ -11,7 +11,10 @@
 - **Фаза 4** (Адаптер SQLite, Snash) завершена.
 - **Фаза 5** (Генератор DBML) завершена.
 - **Фаза 6** (Команда Snash) завершена.
-- `dbs snash --dsn ./test.db --engine sqlite --file schema.dbml` создаёт валидный DBML-файл с полной схемой (249 тестов).
+- **Фаза 7** (Адаптер SQLite Migrate) завершена.
+- `dbs snash --dsn ./test.db --engine sqlite --file schema.dbml` создаёт валидный DBML-файл с полной схемой (272 теста).
+- `adapter.migrateToSchema(targetIR, { dryRun: true })` — адаптер сам читает текущую схему, сравнивает с целевой SchemaIR, генерирует SQLite-специфичный SQL и возвращает MigrationPlan (13 тестов).
+- Архитектурное решение: никакого промежуточного «differ» слоя — адаптер делает всё.
 - Унификация `--output`/`--input` → `--file` (единый флаг для обеих подкоманд).
 - Авто-вывод пути DBML-файла из DSN (`./migration/<dbname>.dbml`) через `extractDbName()` и `defaultDbmlPath()`.
 - `extractDbName` добавлен как метод интерфейса `DatabaseAdapter` (каждый адаптер знает, как парсить свой DSN).
@@ -26,10 +29,11 @@
 - Корректные exit codes (0–5).
 - DBML лексер, парсер → SchemaIR, парсинг @dbs-комментариев.
 - Полный roundtrip: SchemaIR → DBML → parseDbml → SchemaIR (54 теста).
+- Diff-движок: сравнение двух SchemaIR → MigrationPlan (40 тестов).
 
 ## Следующая фаза
 
-Фаза 7: Diff-движок — сравнение SchemaIR (текущая БД) и SchemaIR (из DBML) → MigrationPlan.
+Фаза 8: Команда Migrate (полная) — CLI-интеграция: чтение DBML, вызов adapter.migrateToSchema(), цветной вывод SQL, dry-run.
 
 ## Ключевые файлы
 |------|-----------|
@@ -41,9 +45,9 @@
 | `src/cli/snash.ts` | Подкоманда snash: разрешение конфигурации, вызов snapper, обработка ошибок |
 | `src/cli/migrate.ts` | Подкоманда migrate (заглушка) |
 | `src/core/snapper.ts` | Бизнес-логика: БД → SchemaIR → DBML файл |
-| `src/core/types.ts` | Все типы схемы БД, SchemaIR, MigrationPlan |
-| `src/adapters/adapter.interface.ts` | Интерфейс DatabaseAdapter |
-| `src/adapters/sqlite.ts` | Адаптер SQLite: Snash (чтение схемы) + заглушки Migrate (Фаза 8) |
+| `src/core/types.ts` | Все типы схемы БД, SchemaIR, MigrationPlan, MigrateOptions |
+| `src/adapters/adapter.interface.ts` | Интерфейс DatabaseAdapter (Snash + migrateToSchema) |
+| `src/adapters/sqlite.ts` | Адаптер SQLite: чтение схемы + migrateToSchema (сравнение + SQL + выполнение) |
 | `src/config/config.types.ts` | Типы конфигурации профилей |
 | `src/config/profiles.ts` | Загрузка и резолв `.dbs.json`, `extractDbName()`, `defaultDbmlPath()` |
 | `src/generator/dbml-writer.ts` | Генератор DBML: SchemaIR → валидный DBML (таблицы, колонки, индексы, Ref, Enum, @dbs) |

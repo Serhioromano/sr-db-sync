@@ -150,7 +150,9 @@ export interface SchemaIR {
   extensions: DbsExtension[];
 }
 
-// --- Migration plan types (used in Phase 7 differ.ts) ---
+// --- Migration plan types ---
+// These describe WHAT was done (or would be done in dry-run mode).
+// The adapter generates them from migrateToSchema().
 
 export type MigrationOpType =
   | 'create_table'
@@ -168,7 +170,15 @@ export interface MigrationOp {
   column?: string;
   index?: string;
   fk?: string;
-  sql: string;
+  sql: string;  // Engine-specific SQL (already executed or previewed)
 }
 
 export type MigrationPlan = MigrationOp[];
+
+/** Options passed to adapter.migrateToSchema(). */
+export interface MigrateOptions {
+  /** Do not execute — just compare schemas and return the plan. */
+  dryRun?: boolean;
+  /** If true, the adapter should also insert Records from DBML that don't exist. */
+  insertRecords?: boolean;
+}

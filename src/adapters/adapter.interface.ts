@@ -10,7 +10,9 @@ import type {
   ViewDef,
   ProcedureDef,
   EnumDef,
-  TableDefinition,
+  SchemaIR,
+  MigrationPlan,
+  MigrateOptions,
 } from '../core/types.js';
 
 // --- DSN field for interactive input ---
@@ -46,20 +48,11 @@ export interface DatabaseAdapter {
   getProcedures(): Promise<ProcedureDef[]>;
   getEnums(): Promise<EnumDef[]>;
 
-  // --- Schema writing (Migrate) ---
-  createTable(table: TableDefinition): Promise<void>;
-  addColumn(tableName: string, column: ColumnDef): Promise<void>;
-  dropColumn(tableName: string, columnName: string): Promise<void>;
-  modifyColumn(tableName: string, column: ColumnDef): Promise<void>;
-  createIndex(tableName: string, index: IndexDef): Promise<void>;
-  dropIndex(tableName: string, indexName: string): Promise<void>;
-  addForeignKey(tableName: string, fk: FKDef): Promise<void>;
-  dropForeignKey(tableName: string, fkName: string): Promise<void>;
-
-  // --- Transactions ---
-  beginTransaction(): Promise<void>;
-  commit(): Promise<void>;
-  rollback(): Promise<void>;
+  // --- Schema migration ---
+  // The adapter reads the current schema, compares it with the target,
+  // generates engine-specific SQL, executes it (unless dryRun), and
+  // returns a MigrationPlan describing what was done/would be done.
+  migrateToSchema(target: SchemaIR, options?: MigrateOptions): Promise<MigrationPlan>;
 }
 
 // --- Adapter constructor interface ---

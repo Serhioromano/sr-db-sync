@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Added (Phase 7 — SQLite Migrate)
+- Архитектурное упрощение: удалён промежуточный слой `differ.ts` — сравнение схем, генерация SQL и выполнение теперь живут в адаптере
+- `src/adapters/adapter.interface.ts` — 8 индивидуальных методов записи + 3 метода транзакций заменены на один `migrateToSchema(target: SchemaIR, options?: MigrateOptions): Promise<MigrationPlan>`
+- `src/adapters/sqlite.ts` — реализован `migrateToSchema()`:
+  - Читает текущую схему через существующие get* методы
+  - Сравнивает с целевой SchemaIR (таблицы, колонки, индексы, FK)
+  - Генерирует SQLite-специфичный SQL
+  - Выполняет (если не dryRun): `PRAGMA foreign_keys = OFF` → SQL → `PRAGMA foreign_keys = ON`
+  - Возвращает MigrationPlan с выполненными операциями
+  - Поддерживает: CREATE TABLE, ALTER TABLE ADD/DROP COLUMN, CREATE/DROP INDEX
+  - MODIFY COLUMN и FK операции: генерирует SQL с комментарием (требуют table rebuild — будущая доработка)
+- `src/core/types.ts` — добавлен `MigrateOptions` (dryRun, insertRecords)
+- `test/sqlite-adapter.test.ts` — 13 новых тестов для migrateToSchema:
+  - Идентичная схема, CREATE TABLE, ADD/DROP/MODIFY COLUMN, CREATE/DROP INDEX, ADD/DROP FK
+  - Порядок операций (колонки перед индексами), case-insensitive matching
+  - Реальное выполнение SQL (dryRun: false), проверка непустых SQL-строк
+- Удалён `src/core/differ.ts` и `test/differ.test.ts` — логика перенесена в адаптер
+- 272 тестов, 0 failures
+
+### Changed (Docs)
+- `SPEC.md` — обновлены секции 6.2 и 7.1: migrateToSchema вместо differ + 8 методов
+- `PLAN.md` — фазы 7-10 перенумерованы, удалена фаза «Diff-движок», упрощена диаграмма зависимостей
+
 ### Changed (Config discovery)
 - `.dbs.json` перемещён в `migration/.dbs.json`
 - `discoverProfilesFile(explicitPath?)` — поиск файла профилей: `migration/.dbs.json` → `.dbs.json`

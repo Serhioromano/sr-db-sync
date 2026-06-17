@@ -342,11 +342,15 @@ ERROR [CONNECT] Failed to connect to database
 
 ```
 1. Парсим аргументы (флаги, профиль, или интерактивный ввод) → определяем engine и dsn
-2. Читаем и парсим DBML-файл (`--file` или путь по умолчанию) → целевая схема
+2. Читаем и парсим DBML-файл (`--file` или путь по умолчанию) → целевая SchemaIR
 3. Выбираем адаптер по engine
 4. adapter.connect(dsn)
-5. Извлекаем текущую схему БД: adapter.getSchema()
-6. differ.ts сравнивает текущую и целевую схемы:
+5. adapter.migrateToSchema(targetIR, { dryRun, insertRecords })
+   Адаптер САМ читает текущую схему, сравнивает с целевой,
+   генерирует engine-специфичный SQL и выполняет (или возвращает план при dry-run).
+   Никакого промежуточного «differ» слоя — адаптер делает всё.
+
+   Логика сравнения внутри адаптера:
 
    ДЛЯ ТАБЛИЦ:
    ├── Таблица есть в DBML, но не в БД → CREATE TABLE
@@ -369,8 +373,9 @@ ERROR [CONNECT] Failed to connect to database
    ├── FK есть в БД, но не в DBML → ALTER TABLE DROP FOREIGN KEY
    └── FK идентичен → ничего не делаем
 
-7. Если --dry-run → вывести SQL-команды в терминал (цветные) без выполнения
-8. Иначе → вывести SQL-команды и выполнить их в транзакции (где поддерживается)
+6. adapter.migrateToSchema() возвращает MigrationPlan — массив операций с SQL
+7. Если --dry-run → вывести SQL-команды в терминал (цветные), НЕ выполнять
+8. Иначе → вывести SQL-команды и выполнить (адаптер сам управляет транзакциями)
 9. adapter.disconnect()
 
 Примечание: и в dry-run, и в реальном режиме SQL-команды выводятся в терминал.
@@ -464,12 +469,9 @@ interface DatabaseAdapter {
   //
   //   static buildDsn(values: Record<string, string>): string
   //     — собирает DSN-строку из ответов пользователя
-  //
-  // Пример для SQLite:
-  //   static readonly dsnFields = [
-  //     { name: 'path', label: 'Путь к файлу БД', type: 'text', default: './db.sqlite', validate: ... }
-  //   ];
-  //   static buildDsn(v: Record<string, string>): string { return v.path; }
+
+  // ===== DSN: извлечение имени БД =====
+  extractDbName(dsn: string): string;
 
   // ===== Snash: чтение схемы =====
   getTables(): Promise<string[]>;
@@ -481,20 +483,19 @@ interface DatabaseAdapter {
   getProcedures(): Promise<ProcedureDef[]>;
   getEnums(): Promise<EnumDef[]>;
 
-  // ===== Migrate: запись схемы =====
-  createTable(table: TableDefinition): Promise<void>;
-  addColumn(tableName: string, column: ColumnDef): Promise<void>;
-  dropColumn(tableName: string, columnName: string): Promise<void>;
-  modifyColumn(tableName: string, column: ColumnDef): Promise<void>;
-  createIndex(tableName: string, index: IndexDef): Promise<void>;
-  dropIndex(tableName: string, indexName: string): Promise<void>;
-  addForeignKey(tableName: string, fk: FKDef): Promise<void>;
-  dropForeignKey(tableName: string, fkName: string): Promise<void>;
+  // ===== Migrate: миграция схемы =====
+  // Адаптер сам читает текущую схему, сравнивает с целевой (target),
+  // генерирует engine-специфичный SQL, выполняет его (если не dryRun)
+  // и возвращает MigrationPlan с выполненными/запланированными операциями.
+  migrateToSchema(
+    target: SchemaIR,
+    options?: MigrateOptions,
+  ): Promise<MigrationPlan>;
+}
 
-  // Транзакции (где поддерживаются)
-  beginTransaction(): Promise<void>;
-  commit(): Promise<void>;
-  rollback(): Promise<void>;
+interface MigrateOptions {
+  dryRun?: boolean;       // Только спланировать, не выполнять
+  insertRecords?: boolean; // Также вставить Records из DBML при наличии
 }
 ```
 

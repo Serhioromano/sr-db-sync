@@ -15,7 +15,11 @@ import type {
   ViewDef,
   ProcedureDef,
   EnumDef,
+  SchemaIR,
   TableDefinition,
+  MigrationPlan,
+  MigrationOp,
+  MigrateOptions,
 } from '../core/types.js';
 import type {
   DatabaseAdapter,
@@ -467,98 +471,357 @@ export class SqliteAdapter implements DatabaseAdapter {
   }
 
   // ==========================================================
-  // Schema writing (Migrate) — stubbed until Phase 8
+  // Schema migration
+  // ==========================================================
+  // The adapter reads the current schema, compares it with the
+  // target SchemaIR, generates SQLite-specific SQL, executes it
+  // (unless dryRun), and returns a MigrationPlan.
+
+  async migrateToSchema(target: SchemaIR, options?: MigrateOptions): Promise<MigrationPlan> {
+    const dryRun = options?.dryRun ?? false;
+    const plan: MigrationPlan = [];
+
+    // 1. Read current schema from the live database
+    const currentTables = await this.readCurrentSchema();
+    const currentTableMap = new Map<string, TableDefinition>();
+    for (const t of currentTables) {
+      currentTableMap.set(t.name.toLowerCase(), t);
+    }
+
+    // 2. Compare and plan operations in correct order:
+    //    CREATE TABLE → DROP/ADD/MODIFY COLUMN → indexes → FKs
+
+    for (const targetTable of target.tables) {
+      const currentTable = currentTableMap.get(targetTable.name.toLowerCase());
+
+      if (!currentTable) {
+        // New table — CREATE TABLE (columns only; indexes + FKs come after)
+        plan.push(...this.planCreateTable(targetTable));
+      } else {
+        // Table exists — diff columns, indexes, FKs
+        plan.push(...this.planColumnChanges(targetTable.name, currentTable.columns, targetTable.columns));
+        plan.push(...this.planIndexChanges(targetTable.name, currentTable.indexes, targetTable.indexes));
+        plan.push(...this.planFKChanges(targetTable.name, currentTable.foreignKeys, targetTable.foreignKeys));
+      }
+    }
+
+    // Tables in current but NOT in target → intentionally skipped (SPEC §6.3)
+
+    // 3. Execute SQL (unless dry-run)
+    if (!dryRun) {
+      const db = this.ensureDb();
+      db.exec('PRAGMA foreign_keys = OFF');
+      try {
+        for (const op of plan) {
+          db.run(op.sql);
+        }
+      } finally {
+        db.exec('PRAGMA foreign_keys = ON');
+      }
+    }
+
+    return plan;
+  }
+
+  // ---- Internal: read the current schema from DB ----
+
+  private async readCurrentSchema(): Promise<TableDefinition[]> {
+    const tableNames = await this.getTables();
+    const tables: TableDefinition[] = [];
+
+    for (const name of tableNames) {
+      const [columns, indexes, foreignKeys] = await Promise.all([
+        this.getColumns(name),
+        this.getIndexes(name),
+        this.getForeignKeys(name),
+      ]);
+
+      tables.push({ name, columns, indexes, foreignKeys, triggers: [] });
+    }
+
+    return tables;
+  }
+
+  // ---- Internal: plan CREATE TABLE operation ----
+
+  private planCreateTable(table: TableDefinition): MigrationOp[] {
+    const lines: string[] = [];
+    lines.push(`CREATE TABLE ${this.q(table.name)} (`);
+
+    const colDefs: string[] = [];
+    for (const col of table.columns) {
+      const parts: string[] = [];
+      parts.push(this.q(col.name));
+      parts.push(col.type.toUpperCase());
+
+      if (col.primaryKey) {
+        parts.push('PRIMARY KEY');
+        if (col.autoIncrement) parts.push('AUTOINCREMENT');
+      }
+      if (!col.nullable && !col.primaryKey) parts.push('NOT NULL');
+      if (col.unique && !col.primaryKey) parts.push('UNIQUE');
+      if (col.defaultValue !== undefined) parts.push(`DEFAULT ${col.defaultValue}`);
+
+      colDefs.push('  ' + parts.join(' '));
+    }
+    lines.push(colDefs.join(',\n'));
+    lines.push(')');
+
+    return [{
+      type: 'create_table',
+      table: table.name,
+      sql: lines.join('\n'),
+    }];
+  }
+
+  // ---- Internal: diff columns between current and target ----
+
+  private planColumnChanges(
+    tableName: string,
+    current: ColumnDef[],
+    target: ColumnDef[],
+  ): MigrationOp[] {
+    const ops: MigrationOp[] = [];
+    const curMap = this.colMap(current);
+    const tgtMap = this.colMap(target);
+
+    // DROP: columns in current but not in target
+    for (const [name, col] of curMap) {
+      if (!tgtMap.has(name)) {
+        ops.push({
+          type: 'drop_column',
+          table: tableName,
+          column: col.name,
+          sql: `ALTER TABLE ${this.q(tableName)} DROP COLUMN ${this.q(col.name)}`,
+        });
+      }
+    }
+
+    // ADD: columns in target but not in current
+    for (const [name, col] of tgtMap) {
+      if (!curMap.has(name)) {
+        ops.push({
+          type: 'add_column',
+          table: tableName,
+          column: col.name,
+          sql: this.sqlAddColumn(tableName, col),
+        });
+      }
+    }
+
+    // MODIFY: columns in both but definition changed
+    for (const [name, tgtCol] of tgtMap) {
+      const curCol = curMap.get(name);
+      if (curCol && !this.colEq(curCol, tgtCol)) {
+        ops.push({
+          type: 'modify_column',
+          table: tableName,
+          column: tgtCol.name,
+          sql: this.sqlModifyColumn(tableName, tgtCol),
+        });
+      }
+    }
+
+    return ops;
+  }
+
+  // ---- Internal: diff indexes ----
+
+  private planIndexChanges(
+    tableName: string,
+    current: IndexDef[],
+    target: IndexDef[],
+  ): MigrationOp[] {
+    const ops: MigrationOp[] = [];
+    const curMap = new Map<string, IndexDef>();
+    for (const idx of current) curMap.set(idx.name.toLowerCase(), idx);
+    const tgtMap = new Map<string, IndexDef>();
+    for (const idx of target) tgtMap.set(idx.name.toLowerCase(), idx);
+
+    // DROP: indexes in current but not in target
+    for (const [name, idx] of curMap) {
+      if (!tgtMap.has(name)) {
+        ops.push({
+          type: 'drop_index',
+          table: tableName,
+          index: idx.name,
+          sql: `DROP INDEX ${this.q(idx.name)}`,
+        });
+      }
+    }
+
+    // CREATE: indexes in target but not in current (or definition changed)
+    for (const [name, idx] of tgtMap) {
+      const cur = curMap.get(name);
+      if (!cur) {
+        ops.push(this.opCreateIndex(tableName, idx));
+      } else if (!this.idxEq(cur, idx)) {
+        // Drop old, create new
+        ops.push({
+          type: 'drop_index',
+          table: tableName,
+          index: cur.name,
+          sql: `DROP INDEX ${this.q(cur.name)}`,
+        });
+        ops.push(this.opCreateIndex(tableName, idx));
+      }
+    }
+
+    return ops;
+  }
+
+  // ---- Internal: diff foreign keys ----
+
+  private planFKChanges(
+    tableName: string,
+    current: FKDef[],
+    target: FKDef[],
+  ): MigrationOp[] {
+    const ops: MigrationOp[] = [];
+    const curMap = new Map<string, FKDef>();
+    for (const fk of current) curMap.set(fk.name.toLowerCase(), fk);
+    const tgtMap = new Map<string, FKDef>();
+    for (const fk of target) tgtMap.set(fk.name.toLowerCase(), fk);
+
+    // DROP: FKs in current but not in target
+    for (const [name, fk] of curMap) {
+      if (!tgtMap.has(name)) {
+        ops.push(this.opDropFK(tableName, fk));
+      }
+    }
+
+    // ADD: FKs in target but not in current (or definition changed)
+    for (const [name, fk] of tgtMap) {
+      const cur = curMap.get(name);
+      if (!cur) {
+        ops.push(this.opAddFK(tableName, fk));
+      } else if (!this.fkEq(cur, fk)) {
+        ops.push(this.opDropFK(tableName, cur));
+        ops.push(this.opAddFK(tableName, fk));
+      }
+    }
+
+    return ops;
+  }
+
+  // ==========================================================
+  // SQL generators (SQLite-specific)
   // ==========================================================
 
-  async createTable(_table: TableDefinition): Promise<void> {
-    throw new DbsError({
-      code: 'MIGRATE',
-      message: 'createTable not yet implemented for SQLite',
-      cause: 'Phase 8 not reached',
-    });
+  private sqlAddColumn(tableName: string, col: ColumnDef): string {
+    const parts: string[] = [];
+    parts.push(`ALTER TABLE ${this.q(tableName)}`);
+    parts.push(`ADD COLUMN ${this.q(col.name)} ${col.type.toUpperCase()}`);
+    if (!col.nullable) parts.push('NOT NULL');
+    if (col.unique) parts.push('UNIQUE');
+    if (col.defaultValue !== undefined) parts.push(`DEFAULT ${col.defaultValue}`);
+    return parts.join(' ');
   }
 
-  async addColumn(_tableName: string, _column: ColumnDef): Promise<void> {
-    throw new DbsError({
-      code: 'MIGRATE',
-      message: 'addColumn not yet implemented for SQLite',
-      cause: 'Phase 8 not reached',
-    });
+  private sqlModifyColumn(tableName: string, col: ColumnDef): string {
+    // SQLite doesn't support ALTER TABLE MODIFY COLUMN.
+    // We emit a comment and a representative SQL; the caller must
+    // handle the table-rebuild workaround (future phase).
+    const parts: string[] = [];
+    parts.push(`ALTER TABLE ${this.q(tableName)}`);
+    parts.push(`MODIFY COLUMN ${this.q(col.name)} ${col.type.toUpperCase()}`);
+    if (!col.nullable) parts.push('NOT NULL');
+    if (col.unique) parts.push('UNIQUE');
+    if (col.defaultValue !== undefined) parts.push(`DEFAULT ${col.defaultValue}`);
+    return `-- Note: SQLite requires table rebuild for MODIFY COLUMN\n${parts.join(' ')}`;
   }
 
-  async dropColumn(_tableName: string, _columnName: string): Promise<void> {
-    throw new DbsError({
-      code: 'MIGRATE',
-      message: 'dropColumn not yet implemented for SQLite',
-      cause: 'Phase 8 not reached',
-    });
+  private opCreateIndex(tableName: string, idx: IndexDef): MigrationOp {
+    const unique = idx.unique ? 'UNIQUE ' : '';
+    const cols = idx.columns.map((c) => this.q(c)).join(', ');
+    return {
+      type: 'create_index',
+      table: tableName,
+      index: idx.name,
+      sql: `CREATE ${unique}INDEX ${this.q(idx.name)} ON ${this.q(tableName)} (${cols})`,
+    };
   }
 
-  async modifyColumn(_tableName: string, _column: ColumnDef): Promise<void> {
-    throw new DbsError({
-      code: 'MIGRATE',
-      message: 'modifyColumn not yet implemented for SQLite',
-      cause: 'Phase 8 not reached',
-    });
+  private opAddFK(tableName: string, fk: FKDef): MigrationOp {
+    const srcCols = fk.columns.map((c) => this.q(c)).join(', ');
+    const refCols = fk.refColumns.map((c) => this.q(c)).join(', ');
+    const cName = fk.name ? `CONSTRAINT ${this.q(fk.name)} ` : '';
+    let sql = `ALTER TABLE ${this.q(tableName)} ADD ${cName}FOREIGN KEY (${srcCols}) REFERENCES ${this.q(fk.refTable)} (${refCols})`;
+    if (fk.onDelete && fk.onDelete !== 'no action') {
+      sql += ` ON DELETE ${fk.onDelete.toUpperCase()}`;
+    }
+    if (fk.onUpdate && fk.onUpdate !== 'no action') {
+      sql += ` ON UPDATE ${fk.onUpdate.toUpperCase()}`;
+    }
+    return {
+      type: 'add_fk',
+      table: tableName,
+      fk: fk.name,
+      sql: `-- Note: SQLite requires table rebuild for FK changes\n${sql}`,
+    };
   }
 
-  async createIndex(_tableName: string, _index: IndexDef): Promise<void> {
-    throw new DbsError({
-      code: 'MIGRATE',
-      message: 'createIndex not yet implemented for SQLite',
-      cause: 'Phase 8 not reached',
-    });
-  }
-
-  async dropIndex(_tableName: string, _indexName: string): Promise<void> {
-    throw new DbsError({
-      code: 'MIGRATE',
-      message: 'dropIndex not yet implemented for SQLite',
-      cause: 'Phase 8 not reached',
-    });
-  }
-
-  async addForeignKey(_tableName: string, _fk: FKDef): Promise<void> {
-    throw new DbsError({
-      code: 'MIGRATE',
-      message: 'addForeignKey not yet implemented for SQLite',
-      cause: 'Phase 8 not reached',
-    });
-  }
-
-  async dropForeignKey(_tableName: string, _fkName: string): Promise<void> {
-    throw new DbsError({
-      code: 'MIGRATE',
-      message: 'dropForeignKey not yet implemented for SQLite',
-      cause: 'Phase 8 not reached',
-    });
+  private opDropFK(tableName: string, fk: FKDef): MigrationOp {
+    return {
+      type: 'drop_fk',
+      table: tableName,
+      fk: fk.name,
+      sql: `-- Note: SQLite requires table rebuild for FK changes\nALTER TABLE ${this.q(tableName)} DROP FOREIGN KEY ${this.q(fk.name)}`,
+    };
   }
 
   // ==========================================================
-  // Transactions — stubbed until Phase 8
+  // Comparison helpers
   // ==========================================================
 
-  async beginTransaction(): Promise<void> {
-    throw new DbsError({
-      code: 'TRANSACTION',
-      message: 'beginTransaction not yet implemented for SQLite',
-      cause: 'Phase 8 not reached',
-    });
+  private q(name: string): string {
+    if ((name.startsWith('"') && name.endsWith('"')) ||
+        (name.startsWith('`') && name.endsWith('`')) ||
+        (name.startsWith('[') && name.endsWith(']'))) {
+      return name;
+    }
+    return `"${name}"`;
   }
 
-  async commit(): Promise<void> {
-    throw new DbsError({
-      code: 'TRANSACTION',
-      message: 'commit not yet implemented for SQLite',
-      cause: 'Phase 8 not reached',
-    });
+  private colMap(cols: ColumnDef[]): Map<string, ColumnDef> {
+    const m = new Map<string, ColumnDef>();
+    for (const c of cols) m.set(c.name.toLowerCase(), c);
+    return m;
   }
 
-  async rollback(): Promise<void> {
-    throw new DbsError({
-      code: 'TRANSACTION',
-      message: 'rollback not yet implemented for SQLite',
-      cause: 'Phase 8 not reached',
-    });
+  private colEq(a: ColumnDef, b: ColumnDef): boolean {
+    return (
+      a.name.toLowerCase() === b.name.toLowerCase() &&
+      a.type.toUpperCase() === b.type.toUpperCase() &&
+      a.nullable === b.nullable &&
+      a.primaryKey === b.primaryKey &&
+      a.unique === b.unique &&
+      a.autoIncrement === b.autoIncrement &&
+      a.defaultValue === b.defaultValue
+    );
+  }
+
+  private idxEq(a: IndexDef, b: IndexDef): boolean {
+    if (a.unique !== b.unique) return false;
+    if (a.columns.length !== b.columns.length) return false;
+    for (let i = 0; i < a.columns.length; i++) {
+      if (a.columns[i].toLowerCase() !== b.columns[i].toLowerCase()) return false;
+    }
+    return true;
+  }
+
+  private fkEq(a: FKDef, b: FKDef): boolean {
+    if (a.columns.length !== b.columns.length) return false;
+    for (let i = 0; i < a.columns.length; i++) {
+      if (a.columns[i].toLowerCase() !== b.columns[i].toLowerCase()) return false;
+    }
+    if (a.refTable.toLowerCase() !== b.refTable.toLowerCase()) return false;
+    if (a.refColumns.length !== b.refColumns.length) return false;
+    for (let i = 0; i < a.refColumns.length; i++) {
+      if (a.refColumns[i].toLowerCase() !== b.refColumns[i].toLowerCase()) return false;
+    }
+    if ((a.onDelete ?? 'no action') !== (b.onDelete ?? 'no action')) return false;
+    if ((a.onUpdate ?? 'no action') !== (b.onUpdate ?? 'no action')) return false;
+    return true;
   }
 }
