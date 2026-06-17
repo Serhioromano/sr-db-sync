@@ -1,8 +1,7 @@
 .PHONY: build publish install clean
 
 build:
-	bun build ./src/index.ts --outdir ./dist --target node --minify
-	sed -i '1s/bun/node/' dist/index.js
+	bun build ./src/index.ts --outdir ./dist --target bun --minify
 
 install:
 	bun install
@@ -35,9 +34,15 @@ publish: build
 		echo "   Then run: npm config set //registry.npmjs.org/:_authToken <token>"; \
 		exit 1; \
 	}
-	@# 5. Sync with remote
+	@# 5. Auto-commit uncommitted changes
+	@if ! git diff --quiet --exit-code || ! git diff --cached --quiet --exit-code; then \
+		echo "📦 Uncommitted changes found. Committing..."; \
+		git add -A; \
+		git commit -m "chore: prepare for publish"; \
+	fi
+	@# 6. Sync with remote
 	@git pull --rebase origin main
-	@# 6. Replace [Unreleased] → [vNEXT_VER] in CHANGELOG
+	@# 7. Replace [Unreleased] → [vNEXT_VER] in CHANGELOG
 	@NEXT_VER=$$(npm version $(v) --dry-run 2>&1 | tail -1 | sed 's/^v//'); \
 		if grep -q '## \[Unreleased\]' CHANGELOG.md; then \
 			echo "📝 Replacing [Unreleased] → [v$$NEXT_VER] in CHANGELOG.md"; \
@@ -45,7 +50,7 @@ publish: build
 		else \
 			echo "⚠️  No [Unreleased] section in CHANGELOG.md, skipping"; \
 		fi
-	@# 7. Bump version + commit everything + tag
+	@# 8. Bump version + commit everything + tag
 	@npm version $(v) --no-git-tag-version > /dev/null 2>&1; \
 		NEW_VER=$$(node -p "require('./package.json').version"); \
 		echo "🏷️  package.json → $$NEW_VER"; \
@@ -55,19 +60,19 @@ publish: build
 		fi; \
 		git tag -f "v$$NEW_VER" > /dev/null 2>&1 || git tag "v$$NEW_VER"; \
 		echo "🔖 Tagged v$$NEW_VER"
-	@# 8. Open new [Unreleased] section
+	@# 9. Open new [Unreleased] section
 	@awk 'NR==1{print; print ""; print "## [Unreleased]"; next} 1' CHANGELOG.md > CHANGELOG.tmp && \
 		mv CHANGELOG.tmp CHANGELOG.md && \
 		git add CHANGELOG.md && \
 		git commit --allow-empty -m "Open [Unreleased] for next cycle" && \
 		echo "📝 Opened new [Unreleased] section"
-	@# 9. Push with tags
+	@# 10. Push with tags
 	@git push origin main --tags
 	@echo "🚀 Pushed to GitHub"
-	@# 10. Publish to npm
+	@# 11. Publish to npm
 	@npm publish
 	@echo "📦 Published sr-db-sync to npm"
-	@# 11. Create GitHub Release from CHANGELOG
+	@# 12. Create GitHub Release from CHANGELOG
 	@tag=$$(git describe --tags --abbrev=0); \
 		notes_file=$$(mktemp); \
 		awk -v ver="## [$$tag]" 'found && /^## \[/{exit} {print} /^## \[/ && $$0 == ver{found=1}' CHANGELOG.md > "$$notes_file"; \

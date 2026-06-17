@@ -25,3 +25,5 @@ strictModeWhiteList:
   - ^npm view\b
   - ^gh\b
   - ^head\b
+  - ^readlink\b
+  - ^make build\b

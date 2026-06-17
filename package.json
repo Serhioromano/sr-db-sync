@@ -11,7 +11,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node --minify && sed -i '1s/bun/node/' dist/index.js",
+    "build": "bun build src/index.ts --outdir dist --target bun --minify",
     "prepublishOnly": "bun run build",
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
