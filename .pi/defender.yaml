@@ -21,3 +21,4 @@ strictModeWhiteList:
   - ^docker --version\b
   - ^npm pack\b
   - ^node\b
+  - ^make compile\b
