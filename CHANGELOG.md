@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+- **Programmatic API** (`src/api.ts`) — importable functions `snash()` and `migrate()` for use in TypeScript/JavaScript code.
+  - `snash(options)` — snapshot database schema to DBML file, returns `{ file, dbml }`.
+  - `migrate(options)` — apply DBML schema to database, returns `{ plan, sql, summary, totalOps }`.
+  - `createAdapter(engine)` — factory for creating adapter instances.
+  - Re-exports: `parseDbml`, `generateDbml`, `parseRecordsFilter`, `DbsError`, and all core types (`SchemaIR`, `MigrationPlan`, etc.).
+  - Options mirror CLI flags (`engine`, `dsn`, `file`, `prefix`, `recordsFilter`, `dryRun`).
+  - Functions throw `DbsError` on failure — never call `process.exit()`.
+
 ## [v1.0.19]
 
 ### Added

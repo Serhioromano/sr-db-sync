@@ -32,11 +32,27 @@ CLI-утилита для двунаправленной конвертации 
 - По умолчанию `--file` = `./migration/<dbname>.dbml` (dbname извлекается адаптером из DSN через `extractDbName()`).
 - Профили: `migration/.dbs.json` (приоритет), затем `.dbs.json` (корень).
 
+## Programmatic API
+
+`src/api.ts` — публичное API для использования в коде (не только CLI).
+
+```typescript
+import { snash, migrate } from 'sr-db-sync/api';
+
+const { file, dbml } = await snash({ engine: 'sqlite', dsn: './db', file: './s.dbml' });
+const result = await migrate({ engine: 'sqlite', dsn: './db', file: './s.dbml', dryRun: true });
+```
+
+**Экспорты:** `snash()`, `migrate()`, `createAdapter()`, `parseDbml()`, `generateDbml()`, `parseRecordsFilter()`, `DbsError` + все core-типы.
+
+**Правило:** API-функции **никогда** не вызывают `process.exit()` — бросают `DbsError`. Адаптер создаётся, коннектится и дисконнектится внутри функций.
+
 ## Ключевые файлы (куда идти)
 
 | Файл | Когда менять |
 |------|-------------|
 | `src/index.ts` | CLI-диспетчер, usage, интерактивный режим |
+| `src/api.ts` | **Публичное API** — `snash()` и `migrate()` для programmatic использования |
 | `src/cli/snash.ts` | Логика команды snash (флаги, профили, вызов snapper) |
 | `src/cli/migrate.ts` | Логика команды migrate (флаги, профили, ANSI-вывод SQL) |
 | `src/core/snapper.ts` | Бизнес-логика: БД → SchemaIR → DBML |

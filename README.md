@@ -197,6 +197,238 @@ Snash flags:
 
 ---
 
+## Programmatic API
+
+> [!TIP]
+> You can use `sr-db-sync` programmatically in your own TypeScript/JavaScript code — full API with `snash()` and `migrate()` functions, structured error handling, and type-safe SchemaIR.
+>
+> Need an AI agent (Copilot, Cursor, Claude Code, etc.) to do the integration for you? Just point it at **[AI.md](https://raw.githubusercontent.com/Serhioromano/sr-db-sync/refs/heads/main/AI.md)** and say: *«Read _https://raw.githubusercontent.com/Serhioromano/sr-db-sync/refs/heads/main/AI.md and help me integrate sr-db-sync into my project.»*
+
+In addition to the CLI, you can use `sr-db-sync` as a TypeScript/JavaScript library in your own scripts, CI/CD pipelines, build systems, or custom tooling.
+
+### Import
+
+```typescript
+import { snash, migrate, createAdapter, parseDbml, generateDbml, parseRecordsFilter } from 'sr-db-sync/api';
+import type { SchemaIR, MigrationPlan, TableDefinition, ColumnDef } from 'sr-db-sync/api';
+```
+
+### `snash(options)` — Snapshot database → DBML
+
+Extracts the full database schema and writes it to a DBML file. Returns the file path and the generated DBML content.
+
+```typescript
+import { snash } from 'sr-db-sync/api';
+
+const { file, dbml } = await snash({
+  engine: 'sqlite',          // 'sqlite' | 'mysql'
+  dsn: './data/app.db',      // connection string
+  file: './schema.dbml',     // output file path
+  prefix: 'wp_',             // optional: strip this prefix from table names
+  recordsFilter: 'all',      // optional: also snapshot data — 'all' | 'users,posts'
+});
+
+console.log(`DBML written to: ${file}`);
+console.log(dbml);  // full DBML content as string
+```
+
+**Return type:**
+```typescript
+{ file: string; dbml: string }
+```
+
+---
+
+### `migrate(options)` — Apply DBML → database
+
+Reads a DBML file, compares it with the live database, and applies only the differences. In dry-run mode, returns the plan without executing SQL.
+
+```typescript
+import { migrate } from 'sr-db-sync/api';
+
+// Always dry-run first to preview changes
+const preview = await migrate({
+  engine: 'sqlite',
+  dsn: './data/prod.db',
+  file: './schema.dbml',
+  dryRun: true,              // preview only, no changes made
+});
+
+console.log(`${preview.totalOps} operations would be applied`);
+console.log(preview.summary);
+// → { create_table: 2, drop_column: 1, add_fk: 1 }
+
+for (const stmt of preview.sql) {
+  console.log(stmt);  // each SQL statement
+}
+
+// Then actually run it
+const result = await migrate({
+  engine: 'sqlite',
+  dsn: './data/prod.db',
+  file: './schema.dbml',
+  dryRun: false,
+  recordsFilter: 'all',      // optional: insert Records from DBML
+});
+```
+
+**Return type:**
+```typescript
+{
+  plan: MigrationPlan;              // full list of operations with metadata
+  sql: string[];                    // SQL statements (excluding comment-only no-ops)
+  summary: Record<string, number>;  // count by operation type
+  totalOps: number;                 // total number of operations
+}
+```
+
+Each operation in `plan` has this shape:
+```typescript
+{
+  type: 'create_table' | 'add_column' | 'drop_column' | 'modify_column'
+      | 'create_index' | 'drop_index' | 'add_fk' | 'drop_fk'
+      | 'rebuild' | 'insert_records';
+  sql: string;         // the SQL statement
+  table?: string;      // affected table
+  column?: string;     // affected column (for column operations)
+}
+```
+
+---
+
+### Error handling
+
+All API functions throw `DbsError` on failure — they **never** call `process.exit()`. You decide how to handle errors:
+
+```typescript
+import { snash, migrate, DbsError } from 'sr-db-sync/api';
+
+try {
+  await migrate({ engine: 'sqlite', dsn: './prod.db', file: './schema.dbml' });
+  console.log('Migration successful');
+} catch (err) {
+  if (err instanceof DbsError) {
+    console.error(`[${err.code}] ${err.message}`);
+    console.error(`  cause: ${err.cause}`);
+    if (err.hint)  console.error(`  hint: ${err.hint}`);
+    if (err.table) console.error(`  table: ${err.table}`);
+    if (err.column) console.error(`  column: ${err.column}`);
+    // exit code available via err.exitCode (1–5)
+    process.exit(err.exitCode);
+  }
+  throw err;  // unexpected error — rethrow
+}
+```
+
+| Error code | Exit code | When it happens |
+|-----------|-----------|-----------------|
+| `ENGINE` | 1 | Unsupported database engine |
+| `CONNECT` | 2 | Cannot reach the database |
+| `SCHEMA_READ` | 3 | Cannot read schema from database |
+| `DBML_PARSE` | 3 | Invalid DBML syntax |
+| `MIGRATE` | 4 | SQL execution failed |
+| `DBML_WRITE` | 5 | Cannot write output file |
+
+---
+
+### Utility functions
+
+```typescript
+import { createAdapter, parseDbml, generateDbml, parseRecordsFilter } from 'sr-db-sync/api';
+
+// Create an adapter for manual lifecycle control
+const adapter = createAdapter('sqlite');
+await adapter.connect('./app.db');
+const tables = await adapter.getTables();
+await adapter.disconnect();
+
+// Parse a DBML string into structured SchemaIR
+const schema: SchemaIR = parseDbml(`
+  Table users {
+    id INTEGER [pk, increment]
+    name TEXT [not null]
+  }
+`);
+
+// Convert SchemaIR back to DBML string
+const dbmlStr = generateDbml(schema);
+
+// Parse CLI-style records filter
+parseRecordsFilter('all');           // → ['*']
+parseRecordsFilter('users,posts');   // → ['users', 'posts']
+parseRecordsFilter(undefined);       // → undefined
+```
+
+---
+
+### Real-world example: CI pipeline
+
+```typescript
+// ci/migrate-staging.ts
+import { snash, migrate } from 'sr-db-sync/api';
+
+async function syncStaging() {
+  // Step 1: Snapshot production schema
+  const { file, dbml } = await snash({
+    engine: 'mysql',
+    dsn: process.env.PROD_DSN!,
+    file: './migration/schema.dbml',
+  });
+  console.log(`Snapshot captured: ${file}`);
+
+  // Step 2: Dry-run against staging
+  const preview = await migrate({
+    engine: 'mysql',
+    dsn: process.env.STAGING_DSN!,
+    file: './migration/schema.dbml',
+    dryRun: true,
+  });
+  console.log(`Preview: ${preview.totalOps} operations`);
+  console.log(preview.summary);
+
+  // Step 3: Apply if safe
+  if (preview.totalOps > 0) {
+    const result = await migrate({
+      engine: 'mysql',
+      dsn: process.env.STAGING_DSN!,
+      file: './migration/schema.dbml',
+      dryRun: false,
+    });
+    console.log(`Applied: ${result.totalOps} operations`);
+  } else {
+    console.log('Staging is up to date with production.');
+  }
+}
+
+syncStaging().catch((err) => {
+  console.error('Sync failed:', err.message);
+  process.exit(1);
+});
+```
+
+---
+
+### Complete export list
+
+| Export | Kind | Description |
+|--------|------|-------------|
+| `snash(options)` | async function | DB → DBML file. Returns `{ file, dbml }`. |
+| `migrate(options)` | async function | DBML → DB. Returns `{ plan, sql, summary, totalOps }`. |
+| `createAdapter(engine)` | sync function | Creates `DatabaseAdapter` instance (`'sqlite'` or `'mysql'`). |
+| `parseDbml(source)` | sync function | Parses DBML string → `SchemaIR`. |
+| `generateDbml(schema, opts?)` | sync function | `SchemaIR` → DBML string. |
+| `parseRecordsFilter(raw)` | sync function | Parses `'all'` / `'t1,t2'` → `string[] \| undefined`. |
+| `DbsError` | class | Structured error with `code`, `cause`, `hint`, `table`, `column`, `exitCode`. |
+| `SchemaIR` | type | Full schema intermediate representation. |
+| `MigrationPlan` | type | `MigrationOp[]` — list of operations with SQL and metadata. |
+| `TableDefinition` | type | Table schema: `{ name, columns, indexes, foreignKeys, triggers }`. |
+| `ColumnDef` | type | Column: `{ name, type, nullable, primaryKey, unique, autoIncrement, defaultValue?, comment? }`. |
+| `IndexDef` | type | Index: `{ name, columns, unique, type? }`. |
+| `FKDef` | type | Foreign key: `{ name, columns, refTable, refColumns, onDelete?, onUpdate? }`. |
+| `DatabaseAdapter` | type | Adapter interface: `connect`, `disconnect`, `migrateToSchema`, etc. |
+
+---
+
 ## Examples
 
 ### Snapshot a database
@@ -283,6 +515,7 @@ When you run `dbs migrate --profile prod --dry-run`, you'll see a color-coded pr
 - **Table prefix handling** — automatically strip or add table prefixes when crossing environments.
 - **DBML extensions** — database-specific features (triggers, views, procedures, engine settings, charset, collation) preserved via `// @dbs:` comments.
 - **AI-friendly output** — structured error messages with codes and machine-parseable format.
+- **Programmatic API** — use `snash()` and `migrate()` in TypeScript/JavaScript code. Full type safety, rich return values, structured error handling.
 - **Proper exit codes** — shell-friendly: 0 = OK, 1 = config error, 2 = connection error, 3 = schema error, 4 = migration error, 5 = write error.
 
 ---

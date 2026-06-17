@@ -331,6 +331,351 @@ dbs
 
 ---
 
+## Programmatic API (TypeScript/JavaScript)
+
+The package also exposes a programmatic API at `sr-db-sync/api`. All functions throw `DbsError` on failure — **never** `process.exit()`. The caller owns error handling and process lifecycle.
+
+### Import
+
+```typescript
+// All imports come from 'sr-db-sync/api'
+import {
+  snash, migrate, createAdapter,
+  parseDbml, generateDbml, parseRecordsFilter,
+  DbsError,
+} from 'sr-db-sync/api';
+import type {
+  SchemaIR, MigrationPlan, MigrationOp, MigrateOptions,
+  TableDefinition, ColumnDef, IndexDef, FKDef,
+  TriggerDef, ViewDef, ProcedureDef, EnumDef,
+  RecordData, DatabaseAdapter,
+} from 'sr-db-sync/api';
+```
+
+---
+
+### `snash(options)` — Database → DBML file
+
+```typescript
+async function snash(options: {
+  engine: 'sqlite' | 'mysql';   // database engine
+  dsn: string;                   // connection string
+  file: string;                  // output DBML path
+  prefix?: string;               // strip this prefix from table names
+  recordsFilter?: string;        // 'all' | 'table1,table2' (default: no data)
+}): Promise<{ file: string; dbml: string }>
+```
+
+**Behavior:**
+1. Creates adapter for the given engine
+2. Connects to the database via the DSN
+3. Reads full schema: tables, columns, indexes, foreign keys, triggers, views, procedures, enums
+4. If `recordsFilter` is set, also reads table data
+5. Generates DBML string, writes to file
+6. Disconnects and returns `{ file, dbml }`
+
+**Error codes it can throw:** `CONNECT`, `SCHEMA_READ`, `DBML_WRITE`
+
+**Example:**
+```typescript
+const { file, dbml } = await snash({
+  engine: 'sqlite',
+  dsn: './dev.db',
+  file: './schema.dbml',
+  recordsFilter: 'users,settings',
+});
+// file = '/absolute/path/to/schema.dbml'
+// dbml = 'Project default {\n  database_type: \'Sqlite\'\n}\n\nTable users { ...'
+```
+
+---
+
+### `migrate(options)` — DBML file → Database
+
+```typescript
+async function migrate(options: {
+  engine: 'sqlite' | 'mysql';
+  dsn: string;
+  file: string;                  // input DBML path
+  prefix?: string;               // prepend this prefix to table names from DBML
+  dryRun?: boolean;              // default: false — preview without executing
+  recordsFilter?: string;        // 'all' | 'table1,table2' (default: no records insert)
+}): Promise<{
+  plan: MigrationPlan;              // { type, sql, table?, column? }[]
+  sql: string[];                    // executable statements (comment-only no-ops excluded)
+  summary: Record<string, number>;  // e.g. { create_table: 2, add_column: 1, drop_fk: 3 }
+  totalOps: number;
+}>
+```
+
+**Behavior:**
+1. Reads the DBML file from disk
+2. Parses it into `SchemaIR` (throws `DBML_PARSE` on invalid syntax)
+3. Creates adapter, connects to database (creates the DB file if it doesn't exist)
+4. Adapter diffs current DB schema vs target SchemaIR
+5. Generates engine-specific SQL (CREATE TABLE, ALTER TABLE, etc.)
+6. If `dryRun: false`, executes the SQL
+7. If `recordsFilter` is set, inserts Records from DBML
+8. Returns the MigrationPlan
+
+**Crucial rule for AI agents:** **Always use `dryRun: true` first** to preview changes before executing `dryRun: false`.
+
+**Error codes it can throw:** `DBML_PARSE`, `CONNECT`, `MIGRATE`
+
+**Example:**
+```typescript
+// Step 1: Preview
+const preview = await migrate({
+  engine: 'sqlite',
+  dsn: './prod.db',
+  file: './schema.dbml',
+  dryRun: true,
+});
+// Examine preview.plan, preview.summary, preview.sql
+console.log(preview.summary); // { create_table: 2, drop_column: 1 }
+
+// Step 2: Execute
+const result = await migrate({
+  engine: 'sqlite',
+  dsn: './prod.db',
+  file: './schema.dbml',
+  dryRun: false,
+});
+console.log(`${result.totalOps} operations applied`);
+```
+
+---
+
+### `MigrationPlan` and `MigrationOp` types
+
+```typescript
+type MigrationPlan = MigrationOp[];
+
+interface MigrationOp {
+  type: 'create_table' | 'add_column' | 'drop_column' | 'modify_column'
+      | 'create_index' | 'drop_index' | 'add_fk' | 'drop_fk'
+      | 'rebuild' | 'insert_records';
+  sql: string;         // the SQL statement (or -- comment for unsupported engine features)
+  table?: string;      // affected table name
+  column?: string;     // affected column name (for column-level operations)
+}
+```
+
+**When writing AI agents that process MigrationPlan:**
+- Filter out `--` comment lines: `plan.filter(op => !op.sql.trimStart().startsWith('--'))`
+- Comment-only ops happen for SQLite FK changes (SQLite doesn't support ALTER TABLE ADD CONSTRAINT)
+- `rebuild` operations mean the table must be recreated (SQLite column modifications)
+
+---
+
+### `createAdapter(engine)` — Manual adapter lifecycle
+
+```typescript
+function createAdapter(engine: 'sqlite' | 'mysql'): DatabaseAdapter
+```
+
+Throws `DbsError` with code `ENGINE` for unsupported engines. Use this when you need fine-grained control over connect/disconnect or want to call `adapter.getTables()` / `adapter.migrateToSchema()` directly.
+
+```typescript
+const adapter = createAdapter('sqlite');
+await adapter.connect('./app.db');
+const tables = await adapter.getTables();
+// ... manual operations ...
+await adapter.disconnect();
+```
+
+---
+
+### `parseDbml(source)` — DBML string → SchemaIR
+
+```typescript
+function parseDbml(source: string): SchemaIR
+```
+
+Throws `DbsError` with code `DBML_PARSE` on syntax errors (includes `line` and `cause` fields).
+
+---
+
+### `generateDbml(schema, options?)` — SchemaIR → DBML string
+
+```typescript
+function generateDbml(schema: SchemaIR, options?: {
+  databaseType?: string;
+  projectName?: string;
+  projectNote?: string;
+}): string
+```
+
+---
+
+### `parseRecordsFilter(raw)` — Parse records filter string
+
+```typescript
+function parseRecordsFilter(raw: string | undefined): string[] | undefined
+```
+
+| Input | Output |
+|-------|--------|
+| `undefined` | `undefined` |
+| `''` | `undefined` |
+| `'all'` | `['*']` |
+| `'users,posts'` | `['users', 'posts']` |
+
+---
+
+### Error Handling for AI Agents
+
+All API functions throw `DbsError`. The class has these fields:
+
+```typescript
+class DbsError extends Error {
+  code: 'CONFIG' | 'CONNECT' | 'ENGINE' | 'SCHEMA_READ' | 'DBML_PARSE' | 'DBML_WRITE' | 'MIGRATE' | 'TRANSACTION';
+  cause: string;       // root cause / technical reason
+  exitCode: number;    // 1–5 (maps to CLI exit codes)
+  engine?: string;     // e.g. 'sqlite'
+  dsn?: string;        // connection string
+  hint?: string;       // human-readable suggestion
+  file?: string;       // related file path
+  line?: number;       // line number (for DBML_PARSE)
+  operation?: string;  // SQL operation that failed
+  table?: string;      // table that caused the error
+  column?: string;     // column that caused the error
+}
+```
+
+**Canonical error handling pattern for AI agents:**
+
+```typescript
+try {
+  const result = await migrate({ ... });
+  // success
+} catch (err) {
+  if (err instanceof DbsError) {
+    // Structured error — all diagnostic fields available
+    console.error(`[${err.code}] ${err.message}`);
+    console.error(`  cause: ${err.cause}`);
+    if (err.hint)  console.error(`  hint: ${err.hint}`);
+    if (err.table) console.error(`  table: ${err.table}`);
+    if (err.column) console.error(`  column: ${err.column}`);
+    if (err.file)  console.error(`  file: ${err.file}`);
+    if (err.line)  console.error(`  line: ${err.line}`);
+    process.exit(err.exitCode);
+  }
+  // Unexpected error — rethrow for the runtime
+  throw err;
+}
+```
+
+---
+
+### `SchemaIR` type (full intermediate representation)
+
+```typescript
+interface SchemaIR {
+  tables: TableDefinition[];
+  views: ViewDef[];
+  procedures: ProcedureDef[];
+  enums: EnumDef[];
+  extensions: DbsExtension[];  // @dbs comments (triggers, views, procedures, engine, charset, etc.)
+  records: RecordData[];       // parsed Records blocks from DBML
+}
+
+interface TableDefinition {
+  name: string;
+  columns: ColumnDef[];
+  indexes: IndexDef[];
+  foreignKeys: FKDef[];
+  triggers: TriggerDef[];
+}
+
+interface ColumnDef {
+  name: string;
+  type: string;              // 'INTEGER', 'VARCHAR(255)', 'TEXT', etc.
+  nullable: boolean;
+  primaryKey: boolean;
+  unique: boolean;
+  autoIncrement: boolean;
+  defaultValue?: string;
+  comment?: string;
+  enumValues?: string[];      // MySQL ENUM values
+}
+
+interface IndexDef {
+  name: string;
+  columns: string[];
+  unique: boolean;
+  type?: string;              // 'btree', 'hash'
+}
+
+interface FKDef {
+  name: string;
+  columns: string[];
+  refTable: string;
+  refColumns: string[];
+  onDelete?: 'cascade' | 'set null' | 'restrict' | 'no action';
+  onUpdate?: 'cascade' | 'set null' | 'restrict' | 'no action';
+}
+
+interface ViewDef {
+  name: string;
+  definition: string;
+}
+
+interface ProcedureDef {
+  name: string;
+  body: string;
+}
+
+interface EnumDef {
+  name: string;
+  values: string[];
+}
+
+interface RecordData {
+  tableName: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+}
+```
+
+---
+
+### Typical AI agent workflows with the API
+
+**Workflow: Sync two environments**
+```typescript
+// Snapshot source DB
+const { file } = await snash({ engine: 'mysql', dsn: PROD_DSN, file: './schema.dbml' });
+// Preview destination changes
+const preview = await migrate({ engine: 'mysql', dsn: STAGING_DSN, file, dryRun: true });
+if (preview.totalOps > 0) {
+  console.log('Changes needed:', preview.summary);
+  // Apply
+  await migrate({ engine: 'mysql', dsn: STAGING_DSN, file, dryRun: false });
+}
+```
+
+**Workflow: Validate DBML before commit (git hook)**
+```typescript
+const schema = parseDbml(readFileSync('./schema.dbml', 'utf-8'));
+// schema is valid if no exception thrown
+// Optionally: roundtrip to verify
+const regenerated = generateDbml(schema);
+const reparsed = parseDbml(regenerated);
+// Compare table count, column count, etc.
+```
+
+**Workflow: Generate migration SQL for review (CI)**
+```typescript
+const { sql, plan } = await migrate({ engine: 'mysql', dsn: PROD_DSN, file: './schema.dbml', dryRun: true });
+// Write SQL to a file for human review
+writeFileSync('./migration-review.sql', sql.join(';\n\n'));
+// Output summary for CI log
+console.log(JSON.stringify({ totalOps: plan.length, summary: groupBy(plan, 'type') }));
+```
+
+---
+
 ## Notes for AI Agents
 
 - **Always run `--dry-run` before `migrate`** to preview changes. Never skip this step.
