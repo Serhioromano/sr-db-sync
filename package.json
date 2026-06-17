@@ -1,10 +1,17 @@
 {
   "name": "db-sync",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "CLI utility for bidirectional conversion between database and DBML (Database Markup Language)",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "bin": {
+    "dbs": "./src/index.ts"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "bun build src/index.ts --outdir dist --target bun --minify",
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts",
+    "typecheck": "bun run build --noEmit"
   },
   "repository": {
     "type": "git",
@@ -16,7 +23,10 @@
     "sync",
     "database",
     "schema",
-    "versioning"
+    "versioning",
+    "dbml",
+    "sqlite",
+    "mysql"
   ],
   "author": "Sergey Romanov",
   "license": "MIT",
@@ -26,6 +36,8 @@
   },
   "homepage": "https://github.com/Serhioromano/db-sync#readme",
   "devDependencies": {
-    "fallow": "^2.97.0"
+    "@types/bun": "latest",
+    "fallow": "^2.97.0",
+    "typescript": "^5.7.0"
   }
 }

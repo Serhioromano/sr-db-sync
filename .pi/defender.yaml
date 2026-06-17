@@ -6,3 +6,9 @@ strictModeWhiteList:
   - ^cd\b
   - ^npm init\b
   - ^npm install\b
+  - ^mkdir\b
+  - ^bun install\b
+  - ^bun run(\s+--?[a-zA-Z][\w-]*)*\s+src/index\.ts\b
+  - ^bun run(\s+--?[a-zA-Z][\w-]*)*\s+typecheck\b
+  - ^npx fallow\b
+  - ^find\b
