@@ -1,0 +1,12 @@
+{
+  "prod": {
+    "dsn": "./my.db",
+    "engine": "sqlite",
+    "prefix": "mypref_"
+  },
+  "staging": {
+    "dsn": "mysql://user:pass@staging-host:3306/mydb",
+    "engine": "mysql",
+    "prefix": ""
+  }
+}

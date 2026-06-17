@@ -13,3 +13,4 @@ strictModeWhiteList:
   - ^npx fallow\b
   - ^find\b
   - ^npx tsc\b
+  - ^bun add\b

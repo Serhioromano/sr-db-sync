@@ -6,29 +6,32 @@
 
 - **Фаза 0** (Инициализация) завершена.
 - **Фаза 1** (Типы и интерфейсы) завершена.
-- Bun + TypeScript инициализированы, структура директорий создана.
-- CLI-скелет (`src/index.ts`) выводит help и принимает подкоманды `snash` / `migrate`.
-- Все типы данных созданы: `ColumnDef`, `IndexDef`, `FKDef`, `TriggerDef`, `ViewDef`, `ProcedureDef`, `EnumDef`, `TableDefinition`, `SchemaIR`, `DbsExtension`, `MigrationPlan`, `MigrationOp`.
-- Определены интерфейсы адаптера (`DatabaseAdapter`, `DsnField`, `DatabaseAdapterConstructor`).
-- Созданы типы конфигурации (`ProfileConfig`, `DbsProfiles`, `DbsConfig`).
-- Реализован класс `DbsError` с AI-friendly форматированием и exit codes.
-- `package.json` содержит скрипты: `build`, `start`, `dev`, `typecheck`.
-- `tsconfig.json` настроен (strict, ESNext, Bun types).
+- **Фаза 2** (CLI-скелет) завершена.
+- Полноценный парсинг флагов через `node:util.parseArgs`.
+- Загрузка и резолв профилей из `.dbs.json`.
+- Интерактивный режим через `@clack/prompts` (без подкоманды).
+- AI-friendly вывод: `exitOk()`, `exitError()`, `warn()`, `DbsError.format()`.
+- Поддержка `--profile`, `--dsn`, `--engine`, `--prefix`, `--output`, `--input`, `--dry-run`, `--insert`, `--profiles-file`.
+- Корректные exit codes (0–5).
 
 ## Следующая фаза
 
-Фаза 2: CLI-скелет — полноценный парсинг подкоманд, флагов, интерактивный режим, загрузка профилей.
+Фаза 3: Парсер DBML — лексер, парсер, парсинг @dbs-комментариев → SchemaIR.
 
 ## Ключевые файлы
 
 | Файл | Назначение |
 |------|-----------|
-| `SPEC.md` | Полная спецификация (Часть 1 — функционал, Часть 2 — .dbs.json) |
+| `SPEC.md` | Полная спецификация |
 | `PLAN.md` | Пофазовый план реализации |
 | `README.md` | Документация и статус проекта |
 | `CHANGELOG.md` | История изменений |
-| `src/index.ts` | Точка входа CLI |
+| `src/index.ts` | Точка входа CLI, диспетчер подкоманд, интерактивный режим |
+| `src/cli/snash.ts` | Подкоманда snash (заглушка) |
+| `src/cli/migrate.ts` | Подкоманда migrate (заглушка) |
 | `src/core/types.ts` | Все типы схемы БД, SchemaIR, MigrationPlan |
 | `src/adapters/adapter.interface.ts` | Интерфейс DatabaseAdapter |
 | `src/config/config.types.ts` | Типы конфигурации профилей |
-| `src/utils/errors.ts` | Класс DbsError
+| `src/config/profiles.ts` | Загрузка и резолв `.dbs.json` |
+| `src/utils/errors.ts` | Класс DbsError |
+| `src/utils/output.ts` | Функции вывода: exitOk, exitError, warn
