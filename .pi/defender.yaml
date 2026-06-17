@@ -19,3 +19,5 @@ strictModeWhiteList:
   - ^docker run\b
   - ^which\b
   - ^docker --version\b
+  - ^npm pack\b
+  - ^node\b

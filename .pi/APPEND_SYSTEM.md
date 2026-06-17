@@ -64,3 +64,5 @@ bun test                  # все тесты в test/
 bun test --watch          # автоперезапуск при изменениях
 bun test --coverage       # отчёт о покрытии
 ```
+
+4. All messages should be in English

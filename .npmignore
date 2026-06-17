@@ -1,0 +1,40 @@
+# Source code (not needed at runtime — dist/ is the built output)
+src/
+test/
+
+# Standalone binary artifacts
+bin/.gitkeep
+bin/dbs.bin
+dist/dbs
+dist/dbs-*
+
+# Docs & specs (only README.md is published)
+SPEC.md
+PLAN.md
+CHANGELOG.md
+CONTRIBUTING.md
+add.md
+
+# Config files
+tsconfig.json
+Makefile
+.gitignore
+.npmignore
+
+# Pi agent files
+.pi/
+
+# Migration data
+migration/
+
+# Lockfile (npm uses package-lock.json, Bun uses bun.lockb)
+bun.lockb
+package-lock.json
+
+# Dev tooling
+fallow.config.*
+.npmrc
+
+# Misc
+*.sqlite
+*.dbml

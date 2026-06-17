@@ -1,0 +1,17 @@
+#!/bin/sh
+# sr-db-sync launcher
+# If the standalone binary was downloaded by postinstall, use it.
+# Otherwise fall back to Bun runtime + dist/index.js.
+
+DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+if [ -x "$DIR/dbs.bin" ]; then
+    exec "$DIR/dbs.bin" "$@"
+elif command -v bun >/dev/null 2>&1; then
+    exec bun "$DIR/../dist/index.js" "$@"
+else
+    echo "❌ sr-db-sync: no standalone binary found and Bun is not installed." >&2
+    echo "   Install Bun: https://bun.sh" >&2
+    echo "   Or reinstall: npm install -g sr-db-sync" >&2
+    exit 1
+fi

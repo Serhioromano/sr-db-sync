@@ -5,14 +5,17 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "dbs": "./dist/index.js"
+    "dbs": "./bin/dbs"
   },
   "files": [
-    "dist/",
+    "bin/dbs",
+    "dist/index.js",
+    "scripts/install.js",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
+    "postinstall": "node scripts/install.js",
     "build": "bun build src/index.ts --outdir dist --target bun --minify",
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
@@ -21,7 +24,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Serhioromano/db-sync.git"
+    "url": "git+https://github.com/Serhioromano/sr-db-sync.git"
   },
   "keywords": [
     "db",
@@ -38,9 +41,9 @@
   "license": "MIT",
   "type": "module",
   "bugs": {
-    "url": "https://github.com/Serhioromano/db-sync/issues"
+    "url": "https://github.com/Serhioromano/sr-db-sync/issues"
   },
-  "homepage": "https://github.com/Serhioromano/db-sync#readme",
+  "homepage": "https://github.com/Serhioromano/sr-db-sync#readme",
   "devDependencies": {
     "@types/bun": "latest",
     "@types/node": "^25.9.3",
