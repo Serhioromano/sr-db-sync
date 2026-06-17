@@ -1,3 +1,8 @@
 strictModeWhiteList:
   - ^ls\b
   - ^git\b
+  - ^cat\b
+  - ^echo\b
+  - ^cd\b
+  - ^npm init\b
+  - ^npm install\b

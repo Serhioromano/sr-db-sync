@@ -1,0 +1,31 @@
+{
+  "name": "db-sync",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Serhioromano/db-sync.git"
+  },
+  "keywords": [
+    "db",
+    "migration",
+    "sync",
+    "database",
+    "schema",
+    "versioning"
+  ],
+  "author": "Sergey Romanov",
+  "license": "MIT",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/Serhioromano/db-sync/issues"
+  },
+  "homepage": "https://github.com/Serhioromano/db-sync#readme",
+  "devDependencies": {
+    "fallow": "^2.97.0"
+  }
+}
