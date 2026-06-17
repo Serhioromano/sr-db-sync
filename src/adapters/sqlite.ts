@@ -2,10 +2,9 @@
 // SQLite adapter — schema reading (Snash) + schema writing (Migrate)
 // ============================================================
 //
-// Uses bun:sqlite (built-in) — no external dependencies.
-// Migrate methods throw "not implemented" until Phase 8.
+// Uses bun:sqlite (built-in) when running under Bun.
+// Throws a clear error when running under plain Node.js.
 
-import { Database } from 'bun:sqlite';
 import { basename, extname } from 'node:path';
 import type {
   ColumnDef,
@@ -199,7 +198,7 @@ export class SqliteAdapter implements DatabaseAdapter {
 
   // ---- Instance state ----
 
-  private db: Database | null = null;
+  private db: any = null;
   private dsn = '';
 
   // ==========================================================
@@ -207,6 +206,16 @@ export class SqliteAdapter implements DatabaseAdapter {
   // ==========================================================
 
   async connect(dsn: string, options?: ConnectOptions): Promise<void> {
+    // bun:sqlite is only available in the Bun runtime
+    if (typeof globalThis.Bun === 'undefined') {
+      throw new DbsError({
+        code: 'ENGINE',
+        message: 'SQLite adapter requires Bun runtime. Install Bun: https://bun.sh',
+        engine: 'sqlite',
+        hint: 'MySQL adapter works on any Node.js runtime without Bun.',
+      });
+    }
+    const { Database } = await import('bun:sqlite');
     const createIfNotExists = options?.createIfNotExists ?? false;
     try {
       this.dsn = dsn;

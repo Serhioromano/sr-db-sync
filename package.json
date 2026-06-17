@@ -5,18 +5,14 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "dbs": "./bin/dbs"
+    "dbs": "./dist/index.js"
   },
   "files": [
-    "bin/dbs",
-    "dist/index.js",
-    "scripts/install.js",
-    "README.md",
-    "LICENSE"
+    "dist"
   ],
   "scripts": {
-    "postinstall": "node scripts/install.js",
-    "build": "bun build src/index.ts --outdir dist --target bun --minify",
+    "build": "bun build src/index.ts --outdir dist --target node --minify && sed -i '1s/bun/node/' dist/index.js",
+    "prepublishOnly": "bun run build",
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
     "typecheck": "bun run build --noEmit",

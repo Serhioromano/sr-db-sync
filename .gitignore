@@ -94,9 +94,6 @@ typings/
 .nuxt
 dist
 
-# Downloaded standalone binary (created by postinstall)
-bin/dbs.bin
-
 # Gatsby files
 .cache/
 # Comment in the public line in if your project uses Gatsby and *not* Next.js

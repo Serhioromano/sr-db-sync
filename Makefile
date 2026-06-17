@@ -1,19 +1,8 @@
-.PHONY: build publish install clean compile compile-all
+.PHONY: build publish install clean
 
 build:
-	bun build ./src/index.ts --outdir ./dist --target bun --minify
-
-compile:
-	bun build --compile ./src/index.ts --outfile dist/dbs
-
-compile-all:
-	@echo "🔨 Compiling for all platforms..."
-	bun build --compile ./src/index.ts --outfile dist/dbs-linux-x64 --target bun-linux-x64
-	bun build --compile ./src/index.ts --outfile dist/dbs-linux-arm64 --target bun-linux-arm64
-	bun build --compile ./src/index.ts --outfile dist/dbs-darwin-x64 --target bun-darwin-x64
-	bun build --compile ./src/index.ts --outfile dist/dbs-darwin-arm64 --target bun-darwin-arm64
-	bun build --compile ./src/index.ts --outfile dist/dbs-windows-x64.exe --target bun-windows-x64
-	@echo "✅ Binaries in dist/"
+	bun build ./src/index.ts --outdir ./dist --target node --minify
+	sed -i '1s/bun/node/' dist/index.js
 
 install:
 	bun install
@@ -21,34 +10,34 @@ install:
 clean:
 	rm -rf dist/
 
-publish: build compile-all
-	@# 1. Проверить, что передана версия
+publish: build
+	@# 1. Check version argument
 	@test -n "$(v)" || { \
 		echo "❌ Usage: make publish v=<version>"; \
 		echo "   Example: make publish v=patch"; \
 		echo "   Valid: major, minor, patch, premajor, preminor, prepatch, prerelease"; \
 		exit 1; \
 	}
-	@# 2. Проверить GitHub CLI
+	@# 2. Check GitHub CLI
 	@command -v gh >/dev/null 2>&1 || { \
 		echo "❌ GitHub CLI (gh) not found. Install: https://cli.github.com/"; \
 		exit 1; \
 	}
-	@# 3. Проверить авторизацию в GitHub
+	@# 3. Check GitHub auth
 	@gh auth status >/dev/null 2>&1 || { \
 		echo "❌ Not logged in to GitHub. Run: gh auth login"; \
 		exit 1; \
 	}
-	@# 4. Проверить авторизацию в npm
+	@# 4. Check npm auth
 	@npm ping >/dev/null 2>&1 || { \
 		echo "❌ Not logged in to npm."; \
 		echo "   Create a token at https://www.npmjs.com/settings/<your-username>/tokens"; \
 		echo "   Then run: npm config set //registry.npmjs.org/:_authToken <token>"; \
 		exit 1; \
 	}
-	@# 5. Синхронизация с remote
+	@# 5. Sync with remote
 	@git pull --rebase origin main
-	@# 6. Заменить [Unreleased] → [vNEXT_VER] в CHANGELOG
+	@# 6. Replace [Unreleased] → [vNEXT_VER] in CHANGELOG
 	@NEXT_VER=$$(npm version $(v) --dry-run 2>&1 | tail -1 | sed 's/^v//'); \
 		if grep -q '## \[Unreleased\]' CHANGELOG.md; then \
 			echo "📝 Replacing [Unreleased] → [v$$NEXT_VER] in CHANGELOG.md"; \
@@ -56,7 +45,7 @@ publish: build compile-all
 		else \
 			echo "⚠️  No [Unreleased] section in CHANGELOG.md, skipping"; \
 		fi
-	@# 7. Bump версии + закоммитить всё одним коммитом + тег
+	@# 7. Bump version + commit everything + tag
 	@npm version $(v) --no-git-tag-version > /dev/null 2>&1; \
 		NEW_VER=$$(node -p "require('./package.json').version"); \
 		echo "🏷️  package.json → $$NEW_VER"; \
@@ -66,29 +55,28 @@ publish: build compile-all
 		fi; \
 		git tag -f "v$$NEW_VER" > /dev/null 2>&1 || git tag "v$$NEW_VER"; \
 		echo "🔖 Tagged v$$NEW_VER"
-	@# 8. Добавить свежую секцию [Unreleased] для будущих изменений
+	@# 8. Open new [Unreleased] section
 	@awk 'NR==1{print; print ""; print "## [Unreleased]"; next} 1' CHANGELOG.md > CHANGELOG.tmp && \
 		mv CHANGELOG.tmp CHANGELOG.md && \
 		git add CHANGELOG.md && \
 		git commit --allow-empty -m "Open [Unreleased] for next cycle" && \
 		echo "📝 Opened new [Unreleased] section"
-	@# 9. Запушить с тегами
-	@git push origin main --follow-tags
+	@# 9. Push with tags
+	@git push origin main --tags
 	@echo "🚀 Pushed to GitHub"
-	@# 10. Опубликовать в npm
+	@# 10. Publish to npm
 	@npm publish
 	@echo "📦 Published sr-db-sync to npm"
-	@# 11. Создать GitHub Release + прикрепить бинарники
+	@# 11. Create GitHub Release from CHANGELOG
 	@tag=$$(git describe --tags --abbrev=0); \
 		notes_file=$$(mktemp); \
 		awk -v ver="## [$$tag]" 'found && /^## \[/{exit} {print} /^## \[/ && $$0 == ver{found=1}' CHANGELOG.md > "$$notes_file"; \
-		BINARIES="dist/dbs-linux-x64 dist/dbs-linux-arm64 dist/dbs-darwin-x64 dist/dbs-darwin-arm64 dist/dbs-windows-x64.exe"; \
 		if [ ! -s "$$notes_file" ]; then \
 			echo "⚠️  No release notes found in CHANGELOG.md for $$tag, using auto-generated notes"; \
-			gh release create "$$tag" --title "$$tag" --generate-notes $$BINARIES; \
+			gh release create "$$tag" --title "$$tag" --generate-notes; \
 		else \
 			echo "📝 Release notes extracted ($$(wc -l < "$$notes_file") lines)"; \
-			gh release create "$$tag" --title "$$tag" --notes-file "$$notes_file" $$BINARIES; \
+			gh release create "$$tag" --title "$$tag" --notes-file "$$notes_file"; \
 		fi; \
 		rm -f "$$notes_file"; \
-		echo "🎉 GitHub release created: $$tag (+ 5 platform binaries)"
+		echo "🎉 GitHub release created: $$tag"
