@@ -9,6 +9,7 @@ export interface ProfileConfig {
   dsn: string;
   engine: string; // 'sqlite' | 'mysql' | 'postgres'
   prefix?: string; // Table name prefix (optional)
+  file?: string; // DBML file path (optional, auto-derived from DSN if omitted)
 }
 
 /**
@@ -38,10 +39,8 @@ export interface DbsConfig {
   profile?: string;
   /** Path to the profiles JSON file */
   profilesFile: string;
-  /** Output DBML file path (snash command) */
-  output?: string;
-  /** Input DBML file path (migrate command) */
-  input?: string;
+  /** Unified DBML file path: snash writes to it, migrate reads from it */
+  file: string;
   /** Dry-run mode (migrate command) — preview without executing */
   dryRun: boolean;
   /** Insert records mode (migrate command) — check and insert Records */

@@ -114,6 +114,34 @@ describe('SqliteAdapter — static DSN contract', () => {
   });
 });
 
+describe('SqliteAdapter — extractDbName', () => {
+  const adapter = new SqliteAdapter();
+
+  it('should extract name from .db file', () => {
+    expect(adapter.extractDbName('./data/myapp.db')).toBe('myapp');
+  });
+
+  it('should extract name from .sqlite file', () => {
+    expect(adapter.extractDbName('/var/db/production.sqlite')).toBe('production');
+  });
+
+  it('should extract name from .sqlite3 file', () => {
+    expect(adapter.extractDbName('local/db.sqlite3')).toBe('db');
+  });
+
+  it('should extract name from path without known extension', () => {
+    expect(adapter.extractDbName('./data/custom.ext')).toBe('custom');
+  });
+
+  it('should handle path with no extension', () => {
+    expect(adapter.extractDbName('./data/rawfile')).toBe('rawfile');
+  });
+
+  it('should handle just a filename', () => {
+    expect(adapter.extractDbName('mydb.sqlite')).toBe('mydb');
+  });
+});
+
 describe('SqliteAdapter — connect / disconnect', () => {
   afterAll(cleanup);
 

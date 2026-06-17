@@ -6,6 +6,7 @@
 // Migrate methods throw "not implemented" until Phase 8.
 
 import { Database } from 'bun:sqlite';
+import { basename, extname } from 'node:path';
 import type {
   ColumnDef,
   IndexDef,
@@ -163,6 +164,31 @@ export class SqliteAdapter implements DatabaseAdapter {
 
   static buildDsn(values: Record<string, string>): string {
     return values.path;
+  }
+
+  // ---- DSN parsing (instance method, no connection required) ----
+
+  /**
+   * Extract a human-readable database name from a SQLite DSN (file path).
+   *
+   * Examples:
+   *   './data/myapp.db'    → 'myapp'
+   *   '/var/db/prod.sqlite' → 'prod'
+   *   'local/db.sqlite3'    → 'db'
+   *   './data/custom.ext'   → 'custom'
+   *   './data/rawfile'      → 'rawfile'
+   */
+  extractDbName(dsn: string): string {
+    const base = basename(dsn);
+    const ext = extname(base);
+    // Strip well-known SQLite extensions
+    const knownExts = ['.db', '.sqlite', '.sqlite3'];
+    if (knownExts.includes(ext.toLowerCase())) {
+      return base.slice(0, -ext.length);
+    }
+    // Strip any other extension
+    if (ext) return base.slice(0, -ext.length);
+    return base;
   }
 
   // ---- Instance state ----

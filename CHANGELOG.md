@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+### Changed (Architecture)
+- `extractDbName` вынесен как метод интерфейса `DatabaseAdapter`
+  - Каждый адаптер реализует парсинг своего формата DSN
+  - `SqliteAdapter.extractDbName(dsn)` — извлечение имени файла без расширения
+  - `profiles.ts`: `extractDbName()` делегирует адаптеру; fallback URL-парсинг для MySQL/PostgreSQL (пока нет адаптеров)
+  - Добавлена `createAdapterForEngine()` — фабрика адаптеров для DSN-парсинга (без подключения к БД)
+
+### Changed (SPEC update)
+- Унификация `--output`/`--input` → `--file` во всех CLI-слоях и тестах (§4.2, §4.3)
+- `DbsConfig`: поля `output?`/`input?` заменены на единое `file`
+- `ProfileConfig`: добавлено поле `file`
+- Добавлен `extractDbName(dsn, engine)` — извлечение имени БД из DSN (§4.4)
+  - SQLite: имя файла без расширения
+  - MySQL/PostgreSQL: последний сегмент URL (имя БД)
+- Добавлен `defaultDbmlPath(dsn, engine)` — путь по умолчанию `./migration/<dbname>.dbml`
+- Приоритет разрешения `file`: явный `--file` > `file` в профиле > авто-вывод из DSN
+- `.dbs.json` — добавлены поля `file` в профили prod и staging
+- Обновлён USAGE в `src/index.ts` (убраны Snash/Migrate flags, добавлен `--file`)
+
+### Added (Phase 5)
+- `src/generator/dbml-writer.ts` — генератор DBML: SchemaIR → DBML-строка:
+  - `generateDbml(schema, options?)` — основная функция, опциональный Project-блок
+  - `DbmlWriterOptions` — опции: `projectName`, `projectNote`, `databaseType`
+  - Генерация таблиц с колонками и настройками (`[pk, increment, not null, null, unique, default:, note:]`)
+  - Генерация блоков `Indexes` (одиночные и композитные с `unique, name:, type:`)
+  - Генерация `Ref:` для внешних ключей (короткий синтаксис с `>`, настройки `[delete:, update:]`)
+  - Генерация `Enum`-блоков
+  - Генерация `// @dbs:` комментариев для триггеров, представлений, процедур и расширений (check, engine, charset, collation, raw)
+  - Форматирование default-значений: строки в кавычках, backtick-выражения как есть, числа/булевы/null без кавычек
+  - Эскейпинг идентификаторов с пробелами/спецсимволами в двойные кавычки
+  - Подавление `type: btree` (значение по умолчанию) для индексов
+  - Подавление `unique` для primary key колонок (избыточно)
+- **Фиксы парсера:**
+  - `collectDbsComments` теперь разделяет последовательные `@dbs:` комментарии разных типов (прежде сливались в одну группу)
+  - `parseRef` теперь парсит настройки `[delete:, update:]` в коротком синтаксисе `Ref:` (прежде только в блочном `Ref name { }`)
+- **Тесты:** 54 теста в `test/dbml-writer.test.ts`:
+  - 25 тестов генерации (Project, таблицы, колонки, индексы, FK, Enum, @dbs расширения, edge cases)
+  - 9 тестов roundtrip (таблицы, FK, Enum, триггеры, views, procedures, расширения, default-значения, полная схема test.dbml)
+  - 8 тестов форматирования default-значений
+  - 3 теста эскейпинга идентификаторов
+  - 9 тестов edge cases (пустая таблица, пустой тип, pk+unique, пустое тело триггера и т.д.)
+
 ### Added (Phase 4)
 - `src/adapters/sqlite.ts` — адаптер SQLite (Snash):
   - `connect(dsn)` / `disconnect()` — подключение к SQLite через `bun:sqlite` (встроенный, без внешних зависимостей)

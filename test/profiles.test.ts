@@ -5,7 +5,7 @@
 import { describe, it, expect, afterEach, beforeEach } from 'bun:test';
 import { unlinkSync, writeFileSync, mkdirSync, existsSync, readdirSync, rmdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadProfilesFile, resolveProfile } from '../src/config/profiles.js';
+import { loadProfilesFile, resolveProfile, extractDbName, defaultDbmlPath } from '../src/config/profiles.js';
 import { installMocks, runAndCaptureExit, resetCapture } from './helpers.js';
 
 const TEST_DIR = join(import.meta.dir, 'tmp-profiles');
@@ -155,6 +155,7 @@ describe('profiles', () => {
       expect(config.engine).toBe('sqlite');
       expect(config.dsn).toBe('./my.db');
       expect(config.prefix).toBe('app_');
+      expect(config.file).toBe('./migration/my.dbml'); // derived from DSN
       expect(config.profile).toBe('prod');
       expect(config.profilesFile).toContain('profiles.json');
     });
@@ -175,5 +176,87 @@ describe('profiles', () => {
       const stderr = captured.stderr.join('\n');
       expect(stderr).toContain('No profiles defined');
     });
+
+    // ---- file resolution ----
+
+    it('should use explicit file from profile', () => {
+      writeJson('profiles.json', {
+        prod: { dsn: './my.db', engine: 'sqlite', file: './custom/schema.dbml' },
+      });
+      const config = resolveProfile('prod', testPath('profiles.json'));
+      expect(config.file).toBe('./custom/schema.dbml');
+    });
+
+    it('should derive file from SQLite DSN when not specified', () => {
+      writeJson('profiles.json', {
+        prod: { dsn: './data/myapp.db', engine: 'sqlite' },
+      });
+      const config = resolveProfile('prod', testPath('profiles.json'));
+      expect(config.file).toBe('./migration/myapp.dbml');
+    });
+  });
+});
+
+// ============================================================
+// Tests: extractDbName and defaultDbmlPath
+// ============================================================
+
+describe('extractDbName', () => {
+  // --- SQLite ---
+
+  it('should extract name from .db file', () => {
+    expect(extractDbName('./data/myapp.db', 'sqlite')).toBe('myapp');
+  });
+
+  it('should extract name from .sqlite file', () => {
+    expect(extractDbName('/var/db/production.sqlite', 'sqlite')).toBe('production');
+  });
+
+  it('should extract name from .sqlite3 file', () => {
+    expect(extractDbName('local/db.sqlite3', 'sqlite')).toBe('db');
+  });
+
+  it('should extract name from path without known extension', () => {
+    expect(extractDbName('./data/custom.ext', 'sqlite')).toBe('custom');
+  });
+
+  it('should handle path with no extension', () => {
+    expect(extractDbName('./data/rawfile', 'sqlite')).toBe('rawfile');
+  });
+
+  it('should handle just a filename', () => {
+    expect(extractDbName('mydb.sqlite', 'sqlite')).toBe('mydb');
+  });
+
+  // --- MySQL / PostgreSQL ---
+
+  it('should extract name from MySQL DSN', () => {
+    expect(extractDbName('mysql://user:pass@host:3306/mydb', 'mysql')).toBe('mydb');
+  });
+
+  it('should extract name from PostgreSQL DSN', () => {
+    expect(extractDbName('postgresql://user:pass@host:5432/myapp', 'postgres')).toBe('myapp');
+  });
+
+  it('should handle DSN without port', () => {
+    expect(extractDbName('mysql://user@host/mydb', 'mysql')).toBe('mydb');
+  });
+
+  it('should strip query parameters from DSN', () => {
+    expect(extractDbName('mysql://user:pass@host:3306/mydb?ssl=true', 'mysql')).toBe('mydb');
+  });
+
+  it('should return fallback for unparseable DSN', () => {
+    expect(extractDbName('weird-string', 'mysql')).toBe('database');
+  });
+});
+
+describe('defaultDbmlPath', () => {
+  it('should build path from SQLite DSN', () => {
+    expect(defaultDbmlPath('./data/myapp.db', 'sqlite')).toBe('./migration/myapp.dbml');
+  });
+
+  it('should build path from MySQL DSN', () => {
+    expect(defaultDbmlPath('mysql://user@host/mydb', 'mysql')).toBe('./migration/mydb.dbml');
   });
 });

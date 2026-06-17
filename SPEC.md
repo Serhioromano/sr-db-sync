@@ -144,6 +144,7 @@ dbs snash --dsn "mysql://user:***@localhost:3306/mydb" --engine mysql --prefix "
 | `--dsn` | Строка подключения (Data Source Name) | `./my.db`, `mysql://user:***@host/db` |
 | `--engine` | Движок базы данных | `sqlite`, `mysql` |
 | `--prefix` | Префикс для имён таблиц (опционально) | `mypref_` |
+| `--file` | Путь к DBML-файлу (чтение/запись) | `./migration/mydb.dbml` |
 
 #### Способ B: профиль из JSON-файла
 
@@ -159,12 +160,14 @@ dbs migrate --profile "prod"
   "prod": {
     "dsn": "./my.db",
     "engine": "sqlite",
-    "prefix": "mypref_"
+    "prefix": "mypref_",
+    "file": "./migration/prod.dbml"
   },
   "staging": {
     "dsn": "mysql://user:***@staging-host:3306/mydb",
     "engine": "mysql",
-    "prefix": ""
+    "prefix": "",
+    "file": "./migration/staging.dbml"
   }
 }
 ```
@@ -201,14 +204,39 @@ dbs migrate --engine mysql
 
 | Флаг | Подкоманда | Описание | По умолчанию |
 |------|-----------|----------|--------------|
-| `--output` | snash | Путь к выходному DBML-файлу | `./schema.dbml` |
-| `--input` | migrate | Путь к входному DBML-файлу | `./schema.dbml` |
+| `--file` | обе | Путь к DBML-файлу: для snash — куда писать, для migrate — откуда читать | `./migration/<dbname>.dbml` (см. §4.4) |
 | `--dry-run` | migrate | Показать SQL-команды (цветные) без выполнения | `false` |
 | `--profiles-file` | обе | Путь к JSON-файлу профилей | `.dbs.json` (в рабочей директории) |
-| `--insert` | migrate | Если флаг установлен, то миграция не только стурктур востанавливает а проверяет так же Records и вставляет если их нет. | `false` |
+| `--insert` | migrate | Если флаг установлен, то миграция не только структуру восстанавливает, но проверяет так же Records и вставляет, если их нет. | `false` |
 
 
-### 4.4 AI-friendly вывод и обработка ошибок
+### 4.4 Извлечение имени БД из DSN (для значения `--file` по умолчанию)
+
+Когда `--file` не указан явно, путь к DBML-файлу строится автоматически:
+
+```
+./migration/<dbname>.dbml
+```
+
+где `<dbname>` извлекается из DSN-строки по правилам конкретного адаптера:
+
+| Адаптер | DSN | Извлекаемое имя БД | Файл по умолчанию |
+|---------|-----|--------------------|--------------------|
+| SQLite | `./data/myapp.db` | `myapp` (имя файла без расширения) | `./migration/myapp.dbml` |
+| SQLite | `/var/db/production.sqlite` | `production` | `./migration/production.dbml` |
+| MySQL | `mysql://user:***@host:3306/mydb` | `mydb` (последний сегмент пути) | `./migration/mydb.dbml` |
+| PostgreSQL | `postgresql://user:***@host:5432/myapp` | `myapp` (последний сегмент пути) | `./migration/myapp.dbml` |
+
+**Правила извлечения:**
+- **SQLite:** DSN — это путь к файлу. Берётся имя файла, отбрасывается расширение (`.db`, `.sqlite`, `.sqlite3`).
+- **MySQL / PostgreSQL:** DSN — URL. Берётся последний сегмент пути после `/` (имя базы данных), отбрасываются query-параметры.
+
+**Приоритет разрешения:**
+1. `--file` передан явно → использовать его
+2. `file` указан в профиле → использовать его
+3. Ничего не указано → вычислить из DSN по правилам выше
+
+### 4.5 AI-friendly вывод и обработка ошибок
 
 Вывод всех команд спроектирован так, чтобы искусственный интеллект мог однозначно его интерпретировать.
 
@@ -299,7 +327,7 @@ ERROR [CONNECT] Failed to connect to database
    c. Enum-типы:                 adapter.getEnums()
 7. Формируем промежуточное представление (IR)
 8. Генерируем DBML-файл (dbml-writer.ts)
-9. Сохраняем в --output
+9. Сохраняем в `--file` (или путь по умолчанию)
 ```
 
 ---
@@ -314,7 +342,7 @@ ERROR [CONNECT] Failed to connect to database
 
 ```
 1. Парсим аргументы (флаги, профиль, или интерактивный ввод) → определяем engine и dsn
-2. Читаем и парсим DBML-файл (--input) → целевая схема
+2. Читаем и парсим DBML-файл (`--file` или путь по умолчанию) → целевая схема
 3. Выбираем адаптер по engine
 4. adapter.connect(dsn)
 5. Извлекаем текущую схему БД: adapter.getSchema()

@@ -28,16 +28,14 @@ Common flags:
   --dsn <string>             Data Source Name (connection string)
   --engine <string>          Database engine: sqlite | mysql
   --prefix <string>          Table name prefix (optional)
+  --file <path>              DBML file path: snash writes to it, migrate reads from it
+                             (default: ./migration/<dbname>.dbml — derived from DSN)
 
 Profiles:
   --profile <name>           Use a named profile from .dbs.json
   --profiles-file <path>     Path to profiles JSON file (default: .dbs.json)
 
-Snash flags:
-  --output <path>            Output DBML file path (default: ./schema.dbml)
-
 Migrate flags:
-  --input <path>             Input DBML file path (default: ./schema.dbml)
   --dry-run                  Preview SQL commands without executing them
   --insert                   Also check and insert Records from DBML
 
@@ -47,7 +45,7 @@ Other:
 
 Examples:
   dbs snash --dsn ./my.db --engine sqlite
-  dbs snash --profile prod --output schema.dbml
+  dbs snash --profile prod --file schema.dbml
   dbs migrate --profile prod --dry-run
   dbs migrate --dsn mysql://user:pass@localhost/db --engine mysql
 `;

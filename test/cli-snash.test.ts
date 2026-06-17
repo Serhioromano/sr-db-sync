@@ -179,7 +179,7 @@ describe('snashCommand', () => {
     expect(captured.stdout[0]).toBe('EXIT OK [profile resolved: prod]');
   });
 
-  // ---- --prefix and --output are accepted silently ----
+  // ---- --prefix and --file are accepted silently ----
 
   it('should accept --prefix flag with profile', () => {
     writeJson('profiles.json', {
@@ -194,7 +194,7 @@ describe('snashCommand', () => {
         testPath('profiles.json'),
         '--prefix',
         'mypref_',
-        '--output',
+        '--file',
         'custom.dbml',
       ])
     );

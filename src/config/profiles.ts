@@ -6,6 +6,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DbsProfiles, DbsConfig } from './config.types.js';
 import { exitError } from '../utils/output.js';
+import type { DatabaseAdapter } from '../adapters/adapter.interface.js';
+import { SqliteAdapter } from '../adapters/sqlite.js';
 
 /**
  * Supported database engines.
@@ -120,13 +122,84 @@ export function resolveProfile(
     });
   }
 
+  // Resolve file: explicit in profile > derive from DSN
+  const file = profile.file ?? defaultDbmlPath(profile.dsn, engine);
+
   return {
     engine,
     dsn: profile.dsn,
     prefix: profile.prefix ?? '',
+    file,
     profile: profileName,
     profilesFile,
     dryRun: false,
     insert: false,
   };
+}
+
+// ============================================================
+// DSN → DBML file path derivation
+// ============================================================
+
+/**
+ * Adapter factory — creates an unconnected adapter instance for a given engine.
+ * Used for DSN parsing (no database connection required).
+ * Returns null if no adapter is registered for the engine.
+ */
+function createAdapterForEngine(engine: string): DatabaseAdapter | null {
+  switch (engine.toLowerCase()) {
+    case 'sqlite':
+      return new SqliteAdapter();
+    // TODO: add mysql / postgres adapters in future phases
+    default:
+      return null;
+  }
+}
+
+/**
+ * Derive the default DBML file path from a DSN string.
+ *
+ * Rules per SPEC §4.4:
+ *   - SQLite: DSN is a file path → filename without extension
+ *   - MySQL/PostgreSQL: DSN is a URL → last path segment (database name)
+ *
+ * Returns path like `./migration/<dbname>.dbml`.
+ */
+export function defaultDbmlPath(dsn: string, engine: string): string {
+  const dbName = extractDbName(dsn, engine);
+  return `./migration/${dbName}.dbml`;
+}
+
+/**
+ * Extract a human-readable database name from a DSN string.
+ *
+ * Primary path: delegates to engine-specific DatabaseAdapter.extractDbName()
+ * for engines that have an adapter (SQLite).
+ *
+ * Fallback path (for MySQL/PostgreSQL until adapters exist):
+ * treats the DSN as a URL and extracts the last path segment.
+ */
+export function extractDbName(dsn: string, engine: string): string {
+  const adapter = createAdapterForEngine(engine);
+  if (adapter) {
+    return adapter.extractDbName(dsn);
+  }
+
+  // Fallback: URL-based DSN parsing for engines not yet having an adapter
+  // Format: protocol://user:pass@host:port/dbname
+  if (dsn.includes('://')) {
+    try {
+      const urlPart = dsn.split('?')[0]!;
+      const parts = urlPart.split('/');
+      for (let i = parts.length - 1; i >= 0; i--) {
+        if (parts[i] && parts[i] !== '') {
+          return parts[i]!;
+        }
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  return 'database';
 }

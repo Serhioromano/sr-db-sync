@@ -33,6 +33,9 @@ export interface DatabaseAdapter {
   connect(dsn: string): Promise<void>;
   disconnect(): Promise<void>;
 
+  // --- DSN parsing (no connection required) ---
+  extractDbName(dsn: string): string;
+
   // --- Schema reading (Snash) ---
   getTables(): Promise<string[]>;
   getColumns(tableName: string): Promise<ColumnDef[]>;

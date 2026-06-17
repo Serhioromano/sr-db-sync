@@ -9,22 +9,27 @@
 - **Фаза 2** (CLI-скелет) завершена.
 - **Фаза 3** (Парсер DBML) завершена.
 - **Фаза 4** (Адаптер SQLite, Snash) завершена.
+- **Фаза 5** (Генератор DBML) завершена.
+- Унификация `--output`/`--input` → `--file` (единый флаг для обеих подкоманд).
+- Авто-вывод пути DBML-файла из DSN (`./migration/<dbname>.dbml`) через `extractDbName()` и `defaultDbmlPath()`.
+- `extractDbName` добавлен как метод интерфейса `DatabaseAdapter` (каждый адаптер знает, как парсить свой DSN).
+- `extractDbName` в `profiles.ts` делегирует адаптеру; fallback для движков без адаптера (MySQL/PostgreSQL).
+- Поле `file` добавлено в профили `.dbs.json`.
+- Приоритет разрешения `file`: явный `--file` > профиль > авто-вывод из DSN.
 - Полноценный парсинг флагов через `node:util.parseArgs`.
 - Загрузка и резолв профилей из `.dbs.json`.
 - Интерактивный режим через `@clack/prompts` (без подкоманды).
 - AI-friendly вывод: `exitOk()`, `exitError()`, `warn()`, `DbsError.format()`.
-- Поддержка `--profile`, `--dsn`, `--engine`, `--prefix`, `--output`, `--input`, `--dry-run`, `--insert`, `--profiles-file`.
+- Поддержка `--profile`, `--dsn`, `--engine`, `--prefix`, `--file`, `--dry-run`, `--insert`, `--profiles-file`.
 - Корректные exit codes (0–5).
 - DBML лексер, парсер → SchemaIR, парсинг @dbs-комментариев.
-- Адаптер SQLite: connect/disconnect, getTables, getColumns, getIndexes, getForeignKeys, getTriggers, getViews, getProcedures (пусто), getEnums (пусто).
+- Полный roundtrip: SchemaIR → DBML → parseDbml → SchemaIR (54 теста).
 
 ## Следующая фаза
 
-Фаза 5: Генератор DBML — `SchemaIR` → DBML-строка.
+Фаза 6: Команда Snash — интеграция адаптера, генератора и CLI (полная команда `dbs snash`).
 
 ## Ключевые файлы
-
-| Файл | Назначение |
 |------|-----------|
 | `SPEC.md` | Полная спецификация |
 | `PLAN.md` | Пофазовый план реализации |
@@ -37,7 +42,8 @@
 | `src/adapters/adapter.interface.ts` | Интерфейс DatabaseAdapter |
 | `src/adapters/sqlite.ts` | Адаптер SQLite: Snash (чтение схемы) + заглушки Migrate (Фаза 8) |
 | `src/config/config.types.ts` | Типы конфигурации профилей |
-| `src/config/profiles.ts` | Загрузка и резолв `.dbs.json` |
+| `src/config/profiles.ts` | Загрузка и резолв `.dbs.json`, `extractDbName()`, `defaultDbmlPath()` |
+| `src/generator/dbml-writer.ts` | Генератор DBML: SchemaIR → валидный DBML (таблицы, колонки, индексы, Ref, Enum, @dbs) |
 | `src/parser/dbml-lexer.ts` | Токенизатор DBML (ключевые слова, символы, строки, числа, комментарии) |
 | `src/parser/dbml-parser.ts` | Парсер DBML → SchemaIR (таблицы, колонки, индексы, Ref, Enum, DBS-расширения) |
 | `src/utils/comments.ts` | Кодирование/декодирование `// @dbs:` комментариев |

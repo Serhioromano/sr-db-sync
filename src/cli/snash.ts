@@ -51,7 +51,7 @@ export function snashCommand(args: string[]): void {
       dsn: { type: 'string' },
       engine: { type: 'string' },
       prefix: { type: 'string' },
-      output: { type: 'string' },
+      file: { type: 'string' },
       profile: { type: 'string' },
       'profiles-file': { type: 'string' },
     },
@@ -63,12 +63,12 @@ export function snashCommand(args: string[]): void {
   const dsn = strVal(values.dsn);
   const engine = strVal(values.engine);
   const prefix = strVal(values.prefix);
-  const output = strVal(values.output);
+  const file = strVal(values.file);
   const profilesFile = strVal(values['profiles-file']);
 
   if (profile) {
     const config: DbsConfig = resolveProfile(profile, profilesFile ?? '.dbs.json');
-    config.output = output;
+    if (file) config.file = file;
     exitOk(`profile resolved: ${profile}`);
   }
 

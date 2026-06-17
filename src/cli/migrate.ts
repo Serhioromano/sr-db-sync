@@ -61,7 +61,7 @@ export function migrateCommand(args: string[]): void {
       dsn: { type: 'string' },
       engine: { type: 'string' },
       prefix: { type: 'string' },
-      input: { type: 'string' },
+      file: { type: 'string' },
       'dry-run': { type: 'boolean' },
       insert: { type: 'boolean' },
       profile: { type: 'string' },
@@ -75,14 +75,14 @@ export function migrateCommand(args: string[]): void {
   const dsn = strVal(values.dsn);
   const engine = strVal(values.engine);
   const prefix = strVal(values.prefix);
-  const input = strVal(values.input);
+  const file = strVal(values.file);
   const dryRun = boolVal(values['dry-run']);
   const insert = boolVal(values.insert);
   const profilesFile = strVal(values['profiles-file']);
 
   if (profile) {
     const config: DbsConfig = resolveProfile(profile, profilesFile ?? '.dbs.json');
-    config.input = input;
+    if (file) config.file = file;
     config.dryRun = dryRun;
     config.insert = insert;
 

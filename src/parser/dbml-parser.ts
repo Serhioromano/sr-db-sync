@@ -111,12 +111,23 @@ class ParserState {
         break;
       }
 
-      // Collect the DBS comment group
+      // Collect the DBS comment group.
+      // Stop when we hit a new @dbs: header (separate extension)
+      // or a non-comment token, so consecutive extensions are
+      // properly split into separate groups.
       const lines: string[] = [];
       while (
         !this.isAtEnd() &&
         this.current().type === TokenType.LINE_COMMENT
       ) {
+        // If we already collected a header and this line also starts
+        // with @dbs:, it's a new extension — stop here.
+        if (
+          lines.length > 0 &&
+          this.current().value.startsWith('@dbs:')
+        ) {
+          break;
+        }
         const tok = this.advance();
         lines.push(`// ${tok.value}`);
       }
@@ -636,6 +647,10 @@ function parseRef(state: ParserState): RefResult {
       const result = parseRefDefinition(state);
       result.fk.name = refName;
       state.collectDbsComments();
+      // Parse optional ref settings: [delete: cascade, update: restrict]
+      if (state.current().type === TokenType.LBRACKET) {
+        parseRefSettings(state, result.fk);
+      }
       return result;
     }
   }
@@ -645,6 +660,10 @@ function parseRef(state: ParserState): RefResult {
     state.advance(); // COLON
     const result = parseRefDefinition(state);
     state.collectDbsComments();
+    // Parse optional ref settings: [delete: cascade, update: restrict]
+    if (state.current().type === TokenType.LBRACKET) {
+      parseRefSettings(state, result.fk);
+    }
     return result;
   }
 
