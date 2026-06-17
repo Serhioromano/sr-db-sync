@@ -13,7 +13,8 @@
 - **Фаза 6** (Команда Snash) завершена.
 - **Фаза 7** (Адаптер SQLite Migrate) завершена.
 - **Фаза 8** (Команда Migrate полная) завершена.
-- `dbs snash --dsn ./test.db --engine sqlite --file schema.dbml` создаёт валидный DBML-файл с полной схемой (280 тестов).
+- **Фаза 9** (Адаптер MySQL) завершена.
+- `dbs snash --dsn ./test.db --engine sqlite --file schema.dbml` создаёт валидный DBML-файл с полной схемой (306 тестов).
 - `dbs migrate --profile prod --dry-run` — читает DBML, парсит, вызывает adapter.migrateToSchema(), выводит цветные SQL-команды. `dbs migrate --profile prod` — выполняет миграцию с цветными чекмарками.
 - Архитектурное решение: никакого промежуточного «differ» слоя — адаптер делает всё.
 - Унификация `--output`/`--input` → `--file` (единый флаг для обеих подкоманд).
@@ -24,7 +25,7 @@
 - `discoverProfilesFile()` — поиск `.dbs.json` в `migration/`, затем в корне.
 - Полноценный парсинг флагов через `node:util.parseArgs`.
 - Загрузка и резолв профилей из `.dbs.json`.
-- Интерактивный режим через `@clack/prompts` (без подкоманды).
+- Интерактивный режим `dbs` (без подкоманды) делегирует в интерактивный поток snash/migrate.
 - AI-friendly вывод: `exitOk()`, `exitError()`, `warn()`, `DbsError.format()`.
 - Поддержка `--profile`, `--dsn`, `--engine`, `--prefix`, `--file`, `--dry-run`, `--records`, `--profiles-file`.
 - `--records` — строковый флаг: `all` (все таблицы) или `table1,table2,...` (конкретные таблицы). Работает и для snash (выгрузка данных), и для migrate (вставка данных).
@@ -36,6 +37,10 @@
 - Snapper: при `recordsFilter` извлекает данные из БД и включает в SchemaIR.
 - Типы: `RecordRow`, `RecordData`, `records[]` в `SchemaIR`, `recordsFilter` в `MigrateOptions`, `records?: string` в `DbsConfig`.
 - Корректные exit codes (0–5).
+- MySQL адаптер: DSN URL `mysql://user:password@host:port/database`, connection pool (`mysql2/promise`), `information_schema`-запросы (TABLES, COLUMNS, STATISTICS, KEY_COLUMN_USAGE, REFERENTIAL_CONSTRAINTS, TRIGGERS, VIEWS, ROUTINES), `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`, нативный `ALTER TABLE MODIFY COLUMN` и `ADD/DROP FOREIGN KEY` (без table rebuild), backtick-цитирование идентификаторов, нормализация типов (INT(11)↔INT, INTEGER↔INT).
+- `IMPLEMENTED_ENGINES`: `['sqlite', 'mysql']`.
+- Интерактивный режим: MySQL доступен для выбора с полями host/port/user/password/database.
+- 24 модульных теста MySQL (dry-run миграция, SQL-генерация, нормализация) + 5 интеграционных (пропускаются без MySQL).
 - DBML лексер, парсер → SchemaIR, парсинг @dbs-комментариев.
 - Полный roundtrip: SchemaIR → DBML → parseDbml → SchemaIR (54 теста).
 - Полная команда migrate: чтение DBML, парсинг, вызов adapter.migrateToSchema(), цветной ANSI-вывод SQL (зелёный CREATE, синий ADD, жёлтый MODIFY, красный DROP), dry-run и реальное выполнение. Интерактивный режим: `dbs migrate` без аргументов запускает выбор профиля / настройку DSN. (19 тестов CLI + 6 тестов в cli-main).

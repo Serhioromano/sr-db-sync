@@ -498,15 +498,17 @@ describe('migrateCommand', () => {
     expect(stderr).toContain('Unsupported engine');
   });
 
-  it('should error on unimplemented engine', async () => {
+  it('should attempt MySQL migration and fail because DBML file is missing', async () => {
+    // MySQL adapter is now implemented — migrate expects a DBML file.
+    // Since no file exists, it will fail with DBML_PARSE (exit code 3)
     const captured = await runAndCaptureExit(() =>
-      migrateCommand(['--dsn', 'x', '--engine', 'mysql'])
+      migrateCommand(['--dsn', 'mysql://root@localhost:3306/db', '--engine', 'mysql'])
     );
 
-    expect(captured.code).toBe(1);
+    // DBML_PARSE error — exit code 3 (file derived from DSN doesn't exist)
+    expect(captured.code).toBe(3);
     const stderr = captured.stderr.join('\n');
-    expect(stderr).toContain('ERROR [ENGINE]');
-    expect(stderr).toContain('not yet implemented');
+    expect(stderr).toContain('ERROR [DBML_PARSE]');
   });
 
   it('should error when DBML file does not exist', async () => {

@@ -14,6 +14,25 @@ import type {
   DbsRawExtension,
 } from '../core/types.js';
 
+// --- FK name normalisation ---
+
+/**
+ * Ensure a foreign key name has the mandatory `fk_` prefix.
+ *
+ * If the name already starts with `fk_`, it's returned unchanged.
+ * Otherwise, the prefix is prepended.
+ *
+ * Examples:
+ *   ensureFkPrefix('posts_ibfk_1')  → 'fk_posts_ibfk_1'
+ *   ensureFkPrefix('fk_users_id')    → 'fk_users_id'
+ *   ensureFkPrefix('')               → ''
+ */
+export function ensureFkPrefix(name: string): string {
+  if (!name) return name;
+  if (name.startsWith('fk_')) return name;
+  return `fk_${name}`;
+}
+
 // --- Parser: comment text → DbsExtension ---
 
 /**

@@ -9,6 +9,7 @@ import { loadProfilesFile, resolveProfile, defaultDbmlPath, discoverProfilesFile
 import type { DbsConfig } from '../config/config.types.js';
 import { exitOk, exitError } from '../utils/output.js';
 import { SqliteAdapter } from '../adapters/sqlite.js';
+import { MysqlAdapter } from '../adapters/mysql.js';
 import type { DatabaseAdapter } from '../adapters/adapter.interface.js';
 import type { DsnField } from '../adapters/adapter.interface.js';
 import { snashSnapshot } from '../core/snapper.js';
@@ -23,7 +24,7 @@ const VALID_ENGINES = new Set(['sqlite', 'mysql', 'postgres']);
 /**
  * Engines that have a working adapter implementation.
  */
-const IMPLEMENTED_ENGINES = new Set(['sqlite']);
+const IMPLEMENTED_ENGINES = new Set(['sqlite', 'mysql']);
 
 /**
  * Validate an engine string. Returns the normalised lowercase version.
@@ -47,6 +48,8 @@ function getAdapterDsnFields(engine: string): DsnField[] | null {
   switch (engine) {
     case 'sqlite':
       return SqliteAdapter.dsnFields;
+    case 'mysql':
+      return MysqlAdapter.dsnFields;
     default:
       return null;
   }
@@ -59,6 +62,8 @@ function buildAdapterDsn(engine: string, values: Record<string, string>): string
   switch (engine) {
     case 'sqlite':
       return SqliteAdapter.buildDsn(values);
+    case 'mysql':
+      return MysqlAdapter.buildDsn(values);
     default:
       throw new Error(`Cannot build DSN for unimplemented engine: ${engine}`);
   }
@@ -72,10 +77,11 @@ function createAdapter(engine: string): DatabaseAdapter {
     case 'sqlite':
       return new SqliteAdapter();
     case 'mysql':
+      return new MysqlAdapter();
     case 'postgres':
       exitError('ENGINE', `Adapter for "${engine}" is not yet implemented`, {
         engine,
-        hint: `The ${engine} adapter will be available in a future version. Currently only SQLite is supported.`,
+        hint: `The ${engine} adapter will be available in a future version. Currently SQLite and MySQL are supported.`,
       });
       break;
     default:
@@ -391,11 +397,11 @@ async function confirmAndRun(
   records: string | undefined,
   fromProfile = false,
 ): Promise<void> {
-  const recLabel = records ? ` (--records: ${records})` : '';
   console.log('');
   console.log(`  Engine:  ${engine}`);
   console.log(`  DSN:     ${dsn}`);
-  console.log(`  Output:  ${file}${recLabel}`);
+  console.log(`  Output:  ${file}`);
+  if (records) console.log(`  Records: ${records}`);
   console.log('');
 
   const confirmed = await prompts.confirm({

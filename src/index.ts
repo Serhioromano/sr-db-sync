@@ -71,15 +71,14 @@ function showVersion(): void {
 
 /**
  * Launch interactive mode using @clack/prompts.
- * Guides the user through: command → engine → dsnFields → confirm.
+ * Asks the user which command to run, then delegates to that command's
+ * own interactive flow (which handles profiles, DSN, records, etc.).
  */
 async function interactiveMode(): Promise<void> {
-  // Dynamic import so @clack/prompts is only loaded when needed
   const prompts = await import('@clack/prompts');
 
-  console.log(''); // visual spacing
+  console.log('');
 
-  // Step 1: Choose command
   const command = await prompts.select({
     message: 'What would you like to do?',
     options: [
@@ -101,34 +100,14 @@ async function interactiveMode(): Promise<void> {
     process.exit(0);
   }
 
-  // Step 2: Choose engine
-  const engine = await prompts.select({
-    message: 'Which database engine?',
-    options: [
-      { value: 'sqlite', label: 'SQLite', hint: 'File-based, zero-config' },
-      { value: 'mysql', label: 'MySQL', hint: 'Popular open-source RDBMS' },
-      {
-        value: 'postgres',
-        label: 'PostgreSQL',
-        hint: 'Advanced open-source RDBMS (future support)',
-      },
-    ],
-  });
-
-  if (prompts.isCancel(engine)) {
-    console.log('Cancelled.');
-    process.exit(0);
+  // Delegate to the subcommand's own interactive flow.
+  // Passing an empty args array triggers the full interactive path
+  // (profile selection → engine → DSN → records → confirm).
+  if (command === 'snash') {
+    await snashCommand([]);
+  } else {
+    await migrateCommand([]);
   }
-
-  // Note: full interactive DSN building (via adapter.dsnFields) will be
-  // implemented in Phase 6 (snash) / Phase 9 (migrate) once adapters exist.
-  console.log(
-    `\nℹ️  Full interactive mode (DSN configuration) will be available in a future version.`
-  );
-  console.log(
-    `   For now, use: dbs ${command} --engine ${engine} --dsn <connection-string>\n`
-  );
-  process.exit(0);
 }
 
 /**

@@ -15,6 +15,7 @@ import {
 import type { DbsConfig } from '../config/config.types.js';
 import { exitOk, exitError, warn } from '../utils/output.js';
 import { SqliteAdapter } from '../adapters/sqlite.js';
+import { MysqlAdapter } from '../adapters/mysql.js';
 import type { DatabaseAdapter, DsnField } from '../adapters/adapter.interface.js';
 import { runMigration } from '../core/migrator.js';
 import { DbsError } from '../utils/errors.js';
@@ -255,7 +256,7 @@ function printExecute(plan: MigrationPlan): void {
 // ============================================================
 
 const VALID_ENGINES = new Set(['sqlite', 'mysql', 'postgres']);
-const IMPLEMENTED_ENGINES = new Set(['sqlite']);
+const IMPLEMENTED_ENGINES = new Set(['sqlite', 'mysql']);
 
 function validateEngine(raw: string): string {
   const engine = raw.toLowerCase();
@@ -281,10 +282,11 @@ function createAdapter(engine: string): DatabaseAdapter {
     case 'sqlite':
       return new SqliteAdapter();
     case 'mysql':
+      return new MysqlAdapter();
     case 'postgres':
       exitError('ENGINE', `Adapter for "${engine}" is not yet implemented`, {
         engine,
-        hint: `The ${engine} adapter will be available in a future version. Currently only SQLite is supported.`,
+        hint: `The ${engine} adapter will be available in a future version. Currently SQLite and MySQL are supported.`,
       });
       break;
     default:
@@ -299,6 +301,8 @@ function getAdapterDsnFields(engine: string): DsnField[] | null {
   switch (engine) {
     case 'sqlite':
       return SqliteAdapter.dsnFields;
+    case 'mysql':
+      return MysqlAdapter.dsnFields;
     default:
       return null;
   }
@@ -308,6 +312,8 @@ function buildAdapterDsn(engine: string, values: Record<string, string>): string
   switch (engine) {
     case 'sqlite':
       return SqliteAdapter.buildDsn(values);
+    case 'mysql':
+      return MysqlAdapter.buildDsn(values);
     default:
       throw new Error(`Cannot build DSN for unimplemented engine: ${engine}`);
   }
@@ -609,12 +615,12 @@ async function confirmAndRunMigrate(
   fromProfile = false,
 ): Promise<void> {
   const mode = dryRun ? '🧪 DRY RUN' : '🚀 MIGRATE';
-  const recLabel = records ? ` (--records: ${records})` : '';
   console.log('');
-  console.log(`  Mode:    ${mode}${recLabel}`);
+  console.log(`  Mode:    ${mode}`);
   console.log(`  Engine:  ${engine}`);
   console.log(`  DSN:     ${dsn}`);
   console.log(`  Input:   ${file}`);
+  if (records) console.log(`  Records: ${records}`);
   console.log('');
 
   const confirmed = await prompts.confirm({

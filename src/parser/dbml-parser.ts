@@ -3,7 +3,7 @@
 // ============================================================
 
 import { DbmlLexer, TokenType, type Token } from './dbml-lexer.js';
-import { parseDbsComment } from '../utils/comments.js';
+import { parseDbsComment, ensureFkPrefix } from '../utils/comments.js';
 import type {
   SchemaIR,
   TableDefinition,
@@ -637,7 +637,7 @@ function parseRef(state: ParserState): RefResult {
       refName = state.advance().value;
       state.advance(); // LBRACE
       const result = parseRefDefinition(state);
-      result.fk.name = refName;
+      result.fk.name = ensureFkPrefix(refName);
 
       // Parse optional ref settings: [delete: cascade, update: restrict]
       state.collectDbsComments();
@@ -654,7 +654,7 @@ function parseRef(state: ParserState): RefResult {
       refName = state.advance().value;
       state.advance(); // COLON
       const result = parseRefDefinition(state);
-      result.fk.name = refName;
+      result.fk.name = ensureFkPrefix(refName);
       state.collectDbsComments();
       // Parse optional ref settings: [delete: cascade, update: restrict]
       if (state.current().type === TokenType.LBRACKET) {
@@ -744,7 +744,7 @@ function parseRefDefinition(state: ParserState): RefResult {
   return {
     tableName: fkTable,
     fk: {
-      name: '',
+      name: `fk_${fkTable}_${fkCols.join('_')}`,
       columns: fkCols,
       refTable,
       refColumns: refCols,

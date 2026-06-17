@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Added (Фаза 9 — Адаптер MySQL Snash + Migrate)
+- `src/adapters/mysql.ts` — полный MySQL-адаптер (1150 строк), реализующий интерфейс `DatabaseAdapter`
+- Соединение: парсинг `mysql://user:password@host:port/database`, `mysql2/promise` connection pool
+- Чтение схемы через `information_schema`: TABLES, COLUMNS, STATISTICS, KEY_COLUMN_USAGE, REFERENTIAL_CONSTRAINTS, TRIGGERS, VIEWS, ROUTINES
+- `getEnums()`: извлечение ENUM-типов из COLUMNS с `DATA_TYPE = 'enum'`
+- `getTableRecords()`: SELECT * с маппингом Date → ISO-строки
+- `migrateToSchema()`: полная миграция — CREATE TABLE (ENGINE=InnoDB, CHARSET=utf8mb4), ALTER ADD/DROP/MODIFY COLUMN (нативная поддержка MySQL!), CREATE/DROP INDEX, ADD/DROP FOREIGN KEY (без table rebuild)
+- `normaliseColType()`: нормализация типов для сравнения — INT(11) ↔ INT, INTEGER ↔ INT, ON UPDATE CURRENT_TIMESTAMP
+- Статические поля: `dsnFields` (host/port/user/password/database), `buildDsn()`
+- `extractDbName()`: извлечение имени БД из MySQL DSN URL
+- CLI: MySQL зарегистрирован в snash, migrate, profiles (адаптерная фабрика)
+- `IMPLEMENTED_ENGINES` обновлён: `['sqlite', 'mysql']`
+- Интерактивный режим: MySQL доступен для выбора движка с полями host/port/user/password/database
+- 24 новых модульных теста (dry-run миграция, генерация SQL, нормализация типов)
+- 5 интеграционных тестов (пропускаются без MySQL)
+- Все 306 тестов проходят
+
+### Changed (Фаза 9.3 — connected `dbs` interactive mode)
+- `dbs` (без подкоманды) теперь полноценно делегирует в интерактивный поток snash / migrate
+- Вместо заглушки «Full interactive mode will be available in a future version» — реальный flow: выбор профиля, DSN, --records, подтверждение
+- Для migrate в интерактивном режиме с профилем: значение `records` из профиля используется без лишнего запроса
+
 ### Changed (Фаза 9.2 — --records как строковый фильтр)
 - `--records` теперь строковый флаг: принимает `all` или `table1,table2,...` вместо булева
 - `--records` работает для ОБОИХ команд: snash (выгрузка данных) и migrate (вставка данных)

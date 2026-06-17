@@ -2,7 +2,7 @@
   "migrate": {
     "dsn": "./migration/new.db",
     "engine": "sqlite",
-    "file": "./migration/_base.dbml",
+    "file": "./migration/mysql.dbml",
     "records": "users,follows,posts"
   },
   "snash": {
@@ -10,5 +10,17 @@
     "engine": "sqlite",
     "file": "./migration/new.dbml",
     "records": "follows,posts,users"
+  },
+  "mysql_migrate": {
+    "dsn": "mysql://root:root@127.0.0.1:3306/test",
+    "engine": "mysql",
+    "file": "./migration/_base.dbml",
+    "records": "users,follows,posts"
+  },
+  "mysql_snash": {
+    "dsn": "mysql://root:root@127.0.0.1:3306/test",
+    "engine": "mysql",
+    "file": "./migration/mysql.dbml",
+    "records": "users,follows,posts"
   }
 }

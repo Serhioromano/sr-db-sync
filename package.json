@@ -2,11 +2,16 @@
   "name": "db-sync",
   "version": "1.0.0",
   "description": "CLI utility for bidirectional conversion between database and DBML (Database Markup Language)",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
-    "dbs": "./src/index.ts"
+    "dbs": "./dist/index.js"
   },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun --minify",
     "start": "bun run src/index.ts",
@@ -43,6 +48,7 @@
     "typescript": "^5.7.0"
   },
   "dependencies": {
-    "@clack/prompts": "^1.5.1"
+    "@clack/prompts": "^1.5.1",
+    "mysql2": "^3.22.5"
   }
 }

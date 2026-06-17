@@ -14,3 +14,8 @@ strictModeWhiteList:
   - ^bun add\b
   - ^bun test\b
   - ^grep\b
+  - ^true\b
+  - ^docker ps\b
+  - ^docker run\b
+  - ^which\b
+  - ^docker --version\b

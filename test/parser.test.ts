@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'bun:test';
 import { DbmlLexer, TokenType, type Token } from '../src/parser/dbml-lexer.js';
 import { parseDbml } from '../src/parser/dbml-parser.js';
-import { parseDbsComment, formatDbsComment } from '../src/utils/comments.js';
+import { parseDbsComment, formatDbsComment, ensureFkPrefix } from '../src/utils/comments.js';
 import type {
   SchemaIR,
   TableDefinition,
@@ -386,6 +386,23 @@ describe('DBS Comments (comments.ts)', () => {
     });
   });
 
+  describe('ensureFkPrefix', () => {
+    it('adds fk_ prefix to unprefixed name', () => {
+      expect(ensureFkPrefix('posts_ibfk_1')).toBe('fk_posts_ibfk_1');
+      expect(ensureFkPrefix('user_posts')).toBe('fk_user_posts');
+      expect(ensureFkPrefix('abc')).toBe('fk_abc');
+    });
+
+    it('preserves existing fk_ prefix', () => {
+      expect(ensureFkPrefix('fk_users_id')).toBe('fk_users_id');
+      expect(ensureFkPrefix('fk_posts_user_id')).toBe('fk_posts_user_id');
+    });
+
+    it('returns empty string unchanged', () => {
+      expect(ensureFkPrefix('')).toBe('');
+    });
+  });
+
   describe('formatDbsComment', () => {
     it('round-trips trigger', () => {
       const ext: DbsExtension = {
@@ -621,6 +638,56 @@ Ref user_comments: comments.user_id > users.id
 Ref post_comments: comments.post_id > posts.id`;
       const schema = parseDbml(source);
       expect(schema.tables.length).toBe(3);
+    });
+
+    it('auto-generates FK names for unnamed Refs', () => {
+      const source = `Table users { id integer }
+Table follows { following_user_id integer followed_user_id integer created_at timestamp }
+
+Ref: follows.following_user_id > users.id [delete: cascade, update: cascade]
+Ref: follows.followed_user_id > users.id [delete: cascade, update: cascade]`;
+      const schema = parseDbml(source);
+
+      const follows = schema.tables.find((t) => t.name === 'follows');
+      expect(follows).toBeDefined();
+      expect(follows!.foreignKeys.length).toBe(2);
+
+      // Both FKs should have auto-generated names (not empty strings)
+      expect(follows!.foreignKeys[0]!.name).toBe('fk_follows_following_user_id');
+      expect(follows!.foreignKeys[1]!.name).toBe('fk_follows_followed_user_id');
+      expect(follows!.foreignKeys[0]!.name.length).toBeGreaterThan(0);
+      expect(follows!.foreignKeys[1]!.name.length).toBeGreaterThan(0);
+    });
+
+    it('adds fk_ prefix to explicitly named Refs', () => {
+      const source = `Table users { id integer }
+Table posts { id integer user_id integer }
+
+Ref user_posts {
+  posts.user_id > users.id [delete: cascade]
+}`;
+      const schema = parseDbml(source);
+
+      const posts = schema.tables.find((t) => t.name === 'posts');
+      expect(posts).toBeDefined();
+      expect(posts!.foreignKeys.length).toBe(1);
+      // The explicit name 'user_posts' should get fk_ prefix → 'fk_user_posts'
+      expect(posts!.foreignKeys[0]!.name).toBe('fk_user_posts');
+    });
+
+    it('preserves fk_ prefix on already-prefixed explicit names', () => {
+      const source = `Table users { id integer }
+Table posts { id integer user_id integer }
+
+Ref fk_posts_user {
+  posts.user_id > users.id [delete: cascade]
+}`;
+      const schema = parseDbml(source);
+
+      const posts = schema.tables.find((t) => t.name === 'posts');
+      expect(posts).toBeDefined();
+      // Already has fk_ prefix — should be preserved
+      expect(posts!.foreignKeys[0]!.name).toBe('fk_posts_user');
     });
   });
 

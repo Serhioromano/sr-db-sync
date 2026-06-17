@@ -8,6 +8,7 @@ import type { DbsProfiles, DbsConfig } from './config.types.js';
 import { exitError } from '../utils/output.js';
 import type { DatabaseAdapter } from '../adapters/adapter.interface.js';
 import { SqliteAdapter } from '../adapters/sqlite.js';
+import { MysqlAdapter } from '../adapters/mysql.js';
 
 /**
  * Supported database engines.
@@ -179,7 +180,8 @@ function createAdapterForEngine(engine: string): DatabaseAdapter | null {
   switch (engine.toLowerCase()) {
     case 'sqlite':
       return new SqliteAdapter();
-    // TODO: add mysql / postgres adapters in future phases
+    case 'mysql':
+      return new MysqlAdapter();
     default:
       return null;
   }

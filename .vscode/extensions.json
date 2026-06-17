@@ -1,6 +1,7 @@
 {
     "recommendations": [
         "matt-meyers.vscode-dbml",
-        "bowlerr.sqlite-intelliview-vscode"
+        "bowlerr.sqlite-intelliview-vscode",
+        "cweijan.vscode-mysql-client2"
     ]
 }

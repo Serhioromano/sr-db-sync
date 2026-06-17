@@ -18,7 +18,7 @@ CLI-утилита для двунаправленной конвертации 
 - [x] Фаза 6: Команда Snash
 - [x] Фаза 7: SQLite Migrate (migrateToSchema)
 - [x] Фаза 8: Команда Migrate (полная)
-- [ ] Фаза 9: Адаптер MySQL
+- [x] Фаза 9: Адаптер MySQL (Snash + Migrate)
 - [ ] Фаза 10: Полировка
 
 ## Технологический стек
@@ -67,5 +67,35 @@ db-sync/
 └── .dbs.json                 # Файл профилей (в корне проекта)
 ```
 
-1. when we migrate and use profile we do not need to select tables in interactive mode as it is already part of profile.
-2. WHen doing snash nor records in dbml file
+docker run -d \
+   --name mysql-dbsync \
+   -e MYSQL_ROOT_PASSWORD=root \
+   -e MYSQL_DATABASE=test \
+   -p 3306:3306 \
+   mysql:8.4 \
+   --default-authentication-plugin=mysql_native_password 2>&1
+
+ ┌──────────────┬───────────┐
+ │ Параметр     │ Значение  │
+ ├──────────────┼───────────┤
+ │ Хост         │ 127.0.0.1 │
+ ├──────────────┼───────────┤
+ │ Порт         │ 3306      │
+ ├──────────────┼───────────┤
+ │ Пользователь │ root      │
+ ├──────────────┼───────────┤
+ │ Пароль       │ root      │
+ ├──────────────┼───────────┤
+ │ База данных  │ test      │
+ └──────────────┴───────────┘
+
+```bash
+   # Остановить
+   docker stop mysql-dbsync
+
+   # Запустить снова
+   docker start mysql-dbsync
+
+   # Удалить
+   docker rm -f mysql-dbsync
+ ```

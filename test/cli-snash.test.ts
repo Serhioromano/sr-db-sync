@@ -185,15 +185,17 @@ describe('snashCommand', () => {
     expect(stderr).toContain('Unsupported engine');
   });
 
-  it('should error for unimplemented MySQL adapter', async () => {
+  it('should attempt MySQL connection and fail with CONNECT error', async () => {
+    // MySQL adapter is now implemented — it will try to connect and fail
+    // because there is no MySQL server running at localhost
     const captured = await runAndCaptureExit(() =>
-      snashCommand(['--dsn', 'mysql://localhost/db', '--engine', 'mysql'])
+      snashCommand(['--dsn', 'mysql://root@localhost:3306/db', '--engine', 'mysql'])
     );
 
-    expect(captured.code).toBe(1);
+    // CONNECT error — exit code 2
+    expect(captured.code).toBe(2);
     const stderr = captured.stderr.join('\n');
-    expect(stderr).toContain('ERROR [ENGINE]');
-    expect(stderr).toContain('not yet implemented');
+    expect(stderr).toContain('ERROR [CONNECT]');
   });
 
   it('should error for unimplemented postgres adapter', async () => {
