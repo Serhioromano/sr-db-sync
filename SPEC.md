@@ -40,7 +40,11 @@
 |-----------|------------|
 | Рантайм | **Bun** |
 | Язык | **TypeScript** |
-| CLI | Встроенный парсинг аргументов через Bun |
+| CLI (парсинг) | Встроенный парсинг аргументов через Bun |
+| CLI (цвета/стили) | **chalk** — цветной вывод, жирный/тусклый текст |
+| CLI (спиннеры) | **ora** — анимированные индикаторы загрузки |
+| CLI (промпты) | **@clack/prompts** — минималистичные интерактивные подтверждения/выборы |
+| CLI (боксы) | **boxen** — рамки/панели вокруг блоков текста |
 | Формат вывода | DBML (Database Markup Language) |
 | Публикация | NPM / BAN / любой npm-совместимый registry |
 
@@ -89,6 +93,43 @@ db-sync/
 | `dbs snash` | Сделать снимок БД → файл DBML |
 | `dbs migrate` | Применить DBML к БД (умная миграция) |
 
+#### Интерактивный выбор команды
+
+Если `dbs` вызван **без подкоманды** (ни `snash`, ни `migrate`), утилита не падает с ошибкой, а запускает интерактивный выбор через **@clack/prompts**:
+
+```
+$ dbs
+
+? Что вы хотите сделать?
+  ❯ 📸 Snash — сохранить схему БД в DBML-файл
+    🚀 Migrate — применить DBML-схему к базе данных
+```
+
+После выбора команды интерактивный поток продолжается:
+- Если не указан `--engine` → выбор движка (sqlite / mysql / postgres)
+- Если не указан `--dsn` и не `--profile` → поля адаптера для построения DSN
+
+**Полный интерактивный путь** (ничего не указано):
+
+```
+$ dbs
+  → Выбор команды (snash / migrate)
+  → Выбор engine (sqlite / mysql / postgres)
+  → Заполнение dsnFields адаптера (путь / хост / пользователь / ...)
+  → Подтверждение DSN
+  → Выполнение
+```
+
+**Частично интерактивный путь** (что-то указано):
+
+```
+$ dbs snash --engine mysql
+  → (команда уже известна, engine уже известен)
+  → Заполнение dsnFields адаптера MySQL
+  → Подтверждение DSN
+  → Выполнение
+```
+
 ### 4.2 Параметры
 
 #### Способ A: явные флаги
@@ -127,6 +168,34 @@ dbs migrate --profile "prod"
   }
 }
 ```
+
+#### Способ C: интерактивный ввод (без `--dsn`)
+
+Если команда вызвана без `--dsn` и без `--profile`, запускается интерактивный режим. Каждый адаптер БД предоставляет свой набор полей (**@clack/prompts**), пользователь заполняет их в терминале, и DSN-строка собирается автоматически адаптером.
+
+```
+# Без --dsn — запустится интерактивный опрос:
+dbs snash --engine sqlite
+dbs migrate --engine mysql
+```
+
+**Поля по адаптерам:**
+
+| Адаптер | Промпты | Собираемый DSN |
+|---------|---------|----------------|
+| SQLite | Путь к файлу БД | `./path/to/db.sqlite` |
+| MySQL | Host, Port (по умолчанию 3306), User, Password (скрытый ввод), Database | `mysql://user:***@host:port/database` |
+| PostgreSQL | Host, Port (по умолчанию 5432), User, Password (скрытый ввод), Database | `postgresql://user:***@host:port/database` |
+
+**Логика разрешения DSN (приоритет):**
+
+```
+1. --dsn передан явно          → использовать его
+2. --profile указан            → взять dsn из профиля
+3. Нет ни того, ни другого     → интерактивный ввод через @clack/prompts
+```
+
+Если не указан `--engine`, он также запрашивается интерактивно самым первым (выбор из доступных адаптеров: `sqlite`, `mysql`, `postgres`).
 
 ### 4.3 Дополнительные флаги
 
@@ -215,8 +284,8 @@ ERROR [CONNECT] Failed to connect to database
 ### 5.2 Алгоритм Snash
 
 ```
-1. Парсим аргументы (флаги или профиль)
-2. Выбираем адаптер по --engine
+1. Парсим аргументы (флаги, профиль, или интерактивный ввод) → определяем engine и dsn
+2. Выбираем адаптер по engine
 3. adapter.connect(dsn)
 4. Извлекаем список таблиц:      adapter.getTables()
 5. Для каждой таблицы:
@@ -244,9 +313,9 @@ ERROR [CONNECT] Failed to connect to database
 ### 6.2 Алгоритм Migrate
 
 ```
-1. Парсим аргументы (флаги или профиль)
+1. Парсим аргументы (флаги, профиль, или интерактивный ввод) → определяем engine и dsn
 2. Читаем и парсим DBML-файл (--input) → целевая схема
-3. Выбираем адаптер по --engine
+3. Выбираем адаптер по engine
 4. adapter.connect(dsn)
 5. Извлекаем текущую схему БД: adapter.getSchema()
 6. differ.ts сравнивает текущую и целевую схемы:
@@ -359,6 +428,21 @@ interface DatabaseAdapter {
   connect(dsn: string): Promise<void>;
   disconnect(): Promise<void>;
 
+  // ===== DSN: интерактивное построение (статические поля на классе) =====
+  // Каждый адаптер ОБЯЗАН реализовать эти статические члены:
+  //
+  //   static readonly dsnFields: DsnField[]
+  //     — поля для интерактивного ввода через @clack/prompts
+  //
+  //   static buildDsn(values: Record<string, string>): string
+  //     — собирает DSN-строку из ответов пользователя
+  //
+  // Пример для SQLite:
+  //   static readonly dsnFields = [
+  //     { name: 'path', label: 'Путь к файлу БД', type: 'text', default: './db.sqlite', validate: ... }
+  //   ];
+  //   static buildDsn(v: Record<string, string>): string { return v.path; }
+
   // ===== Snash: чтение схемы =====
   getTables(): Promise<string[]>;
   getColumns(tableName: string): Promise<ColumnDef[]>;
@@ -389,6 +473,21 @@ interface DatabaseAdapter {
 ### 7.2 Типы данных
 
 ```typescript
+// === DSN: поля для интерактивного ввода ===
+
+interface DsnField {
+  name: string;                // Ключ в values (например 'host', 'password')
+  label: string;               // Человекочитаемая подпись
+  type: 'text' | 'password';   // Тип поля (password = скрытый ввод)
+  default?: string;            // Значение по умолчанию
+  placeholder?: string;        // Текст-подсказка в пустом поле
+  required?: boolean;          // Обязательное поле (по умолчанию true)
+  validate?: (value: string) => string | undefined;
+  // Возвращает строку с ошибкой, или undefined если OK
+}
+
+// === Схема БД ===
+
 interface ColumnDef {
   name: string;
   type: string;            // 'INTEGER', 'VARCHAR(255)', 'TEXT'
@@ -456,7 +555,160 @@ interface TableDefinition {
 | MySQL | `src/adapters/mysql.ts` | ✅ версия 1.0 |
 | PostgreSQL | `src/adapters/postgres.ts` | 🔮 будущая версия |
 
-Добавление нового адаптера: создать файл `src/adapters/<engine>.ts` и реализовать `DatabaseAdapter`.
+Каждый адаптер реализует интерфейс `DatabaseAdapter` и дополнительно предоставляет статические поля для интерактивного построения DSN.
+
+#### DSN-контракт адаптера SQLite
+
+```typescript
+class SqliteAdapter implements DatabaseAdapter {
+  static readonly dsnFields: DsnField[] = [
+    {
+      name: 'path',
+      label: 'Путь к файлу базы данных',
+      type: 'text',
+      default: './db.sqlite',
+      placeholder: './data/myapp.db',
+      required: true,
+    },
+  ];
+
+  static buildDsn(values: Record<string, string>): string {
+    return values.path;
+  }
+
+  // ... остальные методы
+}
+```
+
+#### DSN-контракт адаптера MySQL
+
+```typescript
+class MysqlAdapter implements DatabaseAdapter {
+  static readonly dsnFields: DsnField[] = [
+    {
+      name: 'host',
+      label: 'Хост',
+      type: 'text',
+      default: '127.0.0.1',
+      placeholder: 'db.example.com',
+      required: true,
+    },
+    {
+      name: 'port',
+      label: 'Порт',
+      type: 'text',
+      default: '3306',
+      required: true,
+      validate: (v: string) => {
+        const n = Number(v);
+        if (!Number.isInteger(n) || n < 1 || n > 65535) return 'Порт должен быть числом 1–65535';
+        return undefined;
+      },
+    },
+    {
+      name: 'user',
+      label: 'Пользователь',
+      type: 'text',
+      default: 'root',
+      required: true,
+    },
+    {
+      name: 'password',
+      label: 'Пароль',
+      type: 'password',
+      required: false,
+    },
+    {
+      name: 'database',
+      label: 'Имя базы данных',
+      type: 'text',
+      required: true,
+      placeholder: 'myapp_production',
+    },
+  ];
+
+  static buildDsn(values: Record<string, string>): string {
+    const host = values.host;
+    const port = values.port || '3306';
+    const user = values.user;
+    const pass = values.password ? `:${values.password}` : '';
+    const db = values.database;
+    return `mysql://${user}${pass}@${host}:${port}/${db}`;
+  }
+
+  // ... остальные методы
+}
+```
+
+#### DSN-контракт адаптера PostgreSQL
+
+```typescript
+class PostgresAdapter implements DatabaseAdapter {
+  static readonly dsnFields: DsnField[] = [
+    {
+      name: 'host',
+      label: 'Хост',
+      type: 'text',
+      default: '127.0.0.1',
+      required: true,
+    },
+    {
+      name: 'port',
+      label: 'Порт',
+      type: 'text',
+      default: '5432',
+      required: true,
+    },
+    {
+      name: 'user',
+      label: 'Пользователь',
+      type: 'text',
+      default: 'postgres',
+      required: true,
+    },
+    {
+      name: 'password',
+      label: 'Пароль',
+      type: 'password',
+      required: false,
+    },
+    {
+      name: 'database',
+      label: 'Имя базы данных',
+      type: 'text',
+      required: true,
+      placeholder: 'myapp_production',
+    },
+  ];
+
+  static buildDsn(values: Record<string, string>): string {
+    const host = values.host;
+    const port = values.port || '5432';
+    const user = values.user;
+    const pass = values.password ? `:${values.password}` : '';
+    const db = values.database;
+    return `postgresql://${user}${pass}@${host}:${port}/${db}`;
+  }
+
+  // ... остальные методы
+}
+```
+
+#### Алгоритм интерактивного построения DSN (CLI-слой)
+
+```
+1. Если --engine не указан:
+   └── @clack/prompts → select({ options: ['sqlite', 'mysql', 'postgres'] })
+2. Загружаем класс адаптера по engine (например, SqliteAdapter)
+3. Читаем статическое поле adapterClass.dsnFields
+4. Для каждого DsnField → @clack/prompts → text({ ... }) или password({ ... })
+5. Собираем ответы в Record<string, string>
+6. dsn = adapterClass.buildDsn(answers)
+7. confirm({ message: `Подключиться к ${dsn}?` })
+8. Передаём dsn в adapter.connect(dsn)
+```
+
+Добавление нового адаптера: создать файл `src/adapters/<engine>.ts`, реализовать `DatabaseAdapter` и определить `static dsnFields` + `static buildDsn()`.
 
 ---
 
