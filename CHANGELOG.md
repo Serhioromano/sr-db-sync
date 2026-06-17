@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v1.0.19]
 
 ### Added
 - `--prefix` parameter for both `snash` and `migrate` commands.
