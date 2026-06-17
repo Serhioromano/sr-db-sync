@@ -1,6 +1,6 @@
 {
   "name": "db-sync",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "CLI utility for bidirectional conversion between database and DBML (Database Markup Language)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
