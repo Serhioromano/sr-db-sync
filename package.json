@@ -1,6 +1,6 @@
 {
   "name": "sr-db-sync",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "description": "CLI utility for bidirectional conversion between database and DBML (Database Markup Language)",
   "type": "module",
   "main": "./dist/index.js",

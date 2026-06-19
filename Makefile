@@ -22,7 +22,7 @@ publish:
 	@# ── 3. Check GitHub auth (offer login) ─────────────────────────────────
 	@while ! gh auth status >/dev/null 2>&1; do \
 		echo "🔐 Not logged in to GitHub."; \
-		echo -n "   Login now? [Y/n] "; \
+		echo -n "   Login now? [Y/n] (Y)"; \
 		read -r answer; \
 		case "$$answer" in \
 			[Nn]*) echo "❌ GitHub login required. Aborting."; exit 1 ;; \
@@ -33,7 +33,7 @@ publish:
 	@# ── 4. Check bun auth (offer login) ────────────────────────────────────
 	@while ! bun whoami >/dev/null 2>&1; do \
 		echo "🔐 Not logged in to bun/npm registry."; \
-		echo -n "   Login now? [Y/n] "; \
+		echo -n "   Login now? [Y/n] (Y)"; \
 		read -r answer; \
 		case "$$answer" in \
 			[Nn]*) echo "❌ Registry login required. Aborting."; exit 1 ;; \
@@ -90,7 +90,7 @@ publish:
 	@# ── 10. Create GitHub Release from CHANGELOG ────────────────────────────
 	@tag=$$(git describe --tags --abbrev=0); \
 		notes_file=$$(mktemp); \
-		awk -v ver="## [$$tag]" '$$0 == ver {found=1} found {print} found && $$0 != ver && /^## \[/ {exit}' CHANGELOG.md > "$$notes_file"; \
+		awk -v ver="## [$$tag]" '$$0 == ver {found=1; print; next} found && /^## \[/ {exit} found {print}' CHANGELOG.md > "$$notes_file"; \
 		if [ ! -s "$$notes_file" ]; then \
 			echo "⚠️  No release notes found, using auto-generated notes"; \
 			gh release create "$$tag" --title "$$tag" --generate-notes; \
