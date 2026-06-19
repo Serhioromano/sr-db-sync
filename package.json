@@ -1,9 +1,16 @@
 {
   "name": "sr-db-sync",
-  "version": "1.0.20",
+  "version": "1.0.21",
   "description": "CLI utility for bidirectional conversion between database and DBML (Database Markup Language)",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "bin": {
     "dbs": "./dist/index.js"
   },
@@ -11,7 +18,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun --minify && bun run build:types",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun && bun run build:types",
     "prepublishOnly": "bun run build",
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
@@ -36,7 +43,6 @@
   ],
   "author": "Sergey Romanov",
   "license": "MIT",
-  "type": "module",
   "bugs": {
     "url": "https://github.com/Serhioromano/sr-db-sync/issues"
   },
@@ -45,7 +51,7 @@
     "@types/bun": "latest",
     "@types/node": "^25.9.3",
     "fallow": "^2.97.0",
-    "typescript": "^5.7.0"
+    "typescript": "^6.0.3"
   },
   "dependencies": {
     "@clack/prompts": "^1.5.1",

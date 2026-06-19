@@ -1,8 +1,7 @@
 # Changelog
 
-## [Unreleased]
 
-## [v1.0.20]
+## [v1.0.21]
 
 ### Added
 - **Programmatic API** (`src/api.ts`) — importable functions `snash()` and `migrate()` for use in TypeScript/JavaScript code.

@@ -32,3 +32,4 @@ strictModeWhiteList:
   - ^notes_file=\$\(mktemp\)\b
   - ^wc\b
   - ^tail\b
+  - ^make\b
