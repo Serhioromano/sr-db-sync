@@ -3,6 +3,7 @@
 > Database state is the single source of truth. Always.
 
 [![npm version](https://img.shields.io/npm/v/sr-db-sync)](https://www.npmjs.com/package/sr-db-sync)
+[![Bun](https://img.shields.io/badge/runtime-bun-f9f1e1?logo=bun)](https://bun.sh)
 [![license](https://img.shields.io/npm/l/sr-db-sync)](LICENSE)
 
 **sr-db-sync** is a CLI utility for bidirectional conversion between a database and [DBML](https://dbml.dbdiagram.io/) (Database Markup Language). Snapshot your schema to a version-controlled text file. Apply it back — smart, minimally destructive, data-preserving.
@@ -66,21 +67,32 @@ No direction matters — forward, backward, cross-environment. The tool calculat
 
 ## Quick Start
 
+> **Bun is required.** `sr-db-sync` is a **Bun-native** package — it runs on the Bun runtime. No Node.js fallback. If you don't have Bun yet, install it from [bun.sh](https://bun.sh).
+
 ### Installation
 
+**Global install** (use `dbs` from anywhere):
+
 ```bash
-npm install -g sr-db-sync
+bun add -g sr-db-sync
 ```
 
-That's it. On install, the correct pre-compiled standalone binary is downloaded
-automatically for your platform (Linux x64/ARM64, macOS x64/ARM64). **No Bun, Node.js,
-or any runtime required** — `dbs` works immediately.
+> **⚠️ nvm users:** Bun installs global binaries to `~/.bun/bin/`, not nvm's `~/.nvm/…/bin/`.
+> Add this to your `~/.bashrc` (or `~/.zshrc`):
+>
+> ```bash
+> export PATH="$HOME/.bun/bin:$PATH"
+> ```
+>
+> Then `source ~/.bashrc` (or restart your terminal). `dbs` will work.
 
-If the download fails (offline, blocked firewall), `dbs` falls back to the Bun runtime.
-Install Bun from [bun.sh](https://bun.sh) as a backup.
+**Local install** (per-project, use via `bunx`):
 
-> **Manual download:** Standalone binaries are also available on the
-> [GitHub Releases page](https://github.com/Serhioromano/sr-db-sync/releases).
+```bash
+bun add sr-db-sync
+bunx dbs          # runs from ./node_modules/.bin/dbs
+# or: npx dbs
+```
 
 ### Create a profile file
 

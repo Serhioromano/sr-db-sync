@@ -1,8 +1,9 @@
 # Changelog
 
-## [Unreleased]
+## [v1.0.23]
 
-
+### Changed
+- Now we support only `bun` runtime no others. It turned out to be a pain to support `npm` while using `Bun` object in code. And not to use it makes not sense.
 
 ## [v1.0.22]
 

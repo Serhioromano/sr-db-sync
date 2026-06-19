@@ -17,11 +17,24 @@ dbs          →  Interactive guided mode
 
 ## Quick Install
 
+> **Bun runtime is required.** `sr-db-sync` is a Bun-native package — no Node.js fallback. Install Bun from [bun.sh](https://bun.sh).
+
+**Global install** (use `dbs` from anywhere):
+
 ```bash
-npm install -g sr-db-sync
+bun add -g sr-db-sync
 ```
 
-Requires: **Bun** runtime (or Node 18+). The package bundles a compiled binary at `dist/index.js`.
+> **⚠️ nvm users:** Bun installs global binaries to `~/.bun/bin/`, not nvm's `~/.nvm/…/bin/`.
+> Add to `~/.bashrc`: `export PATH="$HOME/.bun/bin:$PATH"`
+> Then `source ~/.bashrc` (or restart terminal).
+
+**Local install** (per-project, use `bunx`):
+
+```bash
+bun add sr-db-sync
+bunx dbs          # runs ./node_modules/.bin/dbs
+```
 
 ---
 
