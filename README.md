@@ -22,6 +22,8 @@ The classic approach to database migrations is fragile and accumulates technical
 
 4. **Sync with code is painful.** A developer changed the schema locally but forgot to write a migration. Production starts throwing "column not found" errors.
 
+5. **Rolling back one or a few versions is very difficult.** Every "up" migration needs a hand-written "down" migration — and the two drift apart. Going back two releases means running several down-steps in the right order, each one guessed, each one tested on production. No down-migrations at all? Then rollback means restoring a backup and losing everything written since. And when the database was never exactly at version N (hotfixes, manual tweaks, a colleague's local schema), "roll back one version" has no well-defined meaning.
+
 **sr-db-sync** takes a different approach.
 
 ---
@@ -55,6 +57,21 @@ schema.dbml →  dbs migrate  →  DB           (bring to target)
 
 No direction matters — forward, backward, cross-environment. The tool calculates the diff and executes only what's needed. The database always converges to the state described in DBML.
 
+### Rolling back one or a few versions
+
+There are no "up" and "down" migrations to write and keep in sync. Each version of your schema is just a `.dbml` file at a commit — rolling back is a `git checkout` plus the same command you always run:
+
+```bash
+# Take the schema as it was one version ago
+git checkout HEAD~1 -- migration/schema.dbml
+
+# Preview the reverse diff, then apply it
+dbs migrate --profile prod --dry-run
+dbs migrate --profile prod
+```
+
+Rolling back one version or ten is the same operation as rolling forward: the diff is computed against **whatever state the database is in right now**, so it works even if production was never exactly at version N. Tables that don't exist in the older DBML are left untouched (as always, no destructive drops), while extra columns are dropped — check the dry-run first.
+
 ---
 
 ## Why DBML?
@@ -62,6 +79,21 @@ No direction matters — forward, backward, cross-environment. The tool calculat
 - **Visualize your schema.** Open a `.dbml` file in [dbdiagram.io](https://dbdiagram.io) or one of the few VS Code extensions and see your entire database structure as a diagram, with relationships and tables. And even Edit it that way.
 - **Git for database structure.** DBML is plain text. Diff, blame, pull requests, code review — it all works. Your team can collaborate on database structure the same way they collaborate on code.
 - **Single source of truth.** One DBML file = the complete database schema. No need to read 50 migration files to understand the current structure.
+- **DBML not supporting something doesn't matter.** We are both the writer and the parser of the `.dbml` file, so the format only has to satisfy *us* — not the DBML specification. Anything DBML has no syntax for is emitted under our reserved `// @dbs:` comment prefix and read back on the next run:
+
+  ```dbml
+  Table users {
+    id    INTEGER      [pk, increment]
+    email VARCHAR(255) [not null]
+  }
+
+  // @dbs:trigger:audit_users:users:after:insert
+  // BEGIN
+  //   INSERT INTO audit_log (action) VALUES ('insert');
+  // END;
+  ```
+
+  Triggers, views, stored procedures, `CHECK` constraints, MySQL engine/charset/collation settings and arbitrary raw SQL all travel this way: the parser turns each comment block back into a structured extension and the generator emits it again, so nothing is lost while the schema passes through the DBML file. Unknown `@dbs:` types are kept **verbatim** instead of being rejected, so a feature we don't support today can be added tomorrow without breaking schema files that already exist. And to every other DBML tool these are just comments — the file stays valid DBML for [dbdiagram.io](https://dbdiagram.io), linters and diff tools.
 
 ---
 
